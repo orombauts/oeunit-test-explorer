@@ -1,0 +1,141 @@
+import * as vscode from 'vscode';
+import * as cp from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
+import { TestItem } from './testProvider';
+import { OEUnitResultParser } from './resultParser';
+
+export class OEUnitTestRunner {
+    private outputChannel: vscode.OutputChannel;
+    private resultParser: OEUnitResultParser;
+
+    constructor() {
+        this.outputChannel = vscode.window.createOutputChannel('OEUnit Test Runner');
+        this.resultParser = new OEUnitResultParser();
+    }
+
+    async runTest(testItem: TestItem): Promise<void> {
+        if (testItem.type === 'file') {
+            await this.runTestFile(testItem.filePath!);
+        } else if (testItem.type === 'method') {
+            await this.runTestMethod(testItem.filePath!, testItem.methodName!);
+        }
+    }
+
+    async runTests(tests: TestItem[]): Promise<void> {
+        this.outputChannel.show(true);
+        this.outputChannel.appendLine('='.repeat(80));
+        this.outputChannel.appendLine('Running all tests...');
+        this.outputChannel.appendLine('='.repeat(80));
+
+        for (const test of tests) {
+            if (test.type === 'file' && test.filePath) {
+                await this.runTestFile(test.filePath);
+            }
+        }
+
+        this.outputChannel.appendLine('All tests completed.');
+    }
+
+    private async runTestFile(filePath: string): Promise<void> {
+        this.outputChannel.appendLine(`\nRunning tests in: ${path.basename(filePath)}`);
+        this.outputChannel.appendLine('-'.repeat(80));
+
+        const config = vscode.workspace.getConfiguration('oeunit');
+        const oeunitHome = config.get<string>('oeunitHome', 'C:\\Workspace\\VSCode\\ADM_2_0\\adm-OEUnit');
+        const toolsHome = config.get<string>('toolsHome', 'C:\\Workspace\\VSCode\\OE_IDE_ADM_Tools');
+        const outputDir = this.resolveOutputDirectory(config.get<string>('outputDirectory', '${workspaceFolder}\\OEResults\\xml'));
+
+        // Ensure output directory exists
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        const scriptPath = path.join(toolsHome, 'ps', 'Run-OEUnitTest.ps1');
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath || '';
+
+        const args = [
+            '-NoProfile',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', `"${scriptPath}"`,
+            '-OEUnitHome', `"${oeunitHome}"`,
+            '-OutputDirectory', `"${outputDir}"`,
+            '-TestLocation', `"${filePath}"`,
+            '-LogLevel', 'Debug'
+        ];
+
+        return new Promise((resolve, reject) => {
+            this.outputChannel.appendLine(`Command: powershell ${args.join(' ')}`);
+            
+            const process = cp.spawn('powershell', args, {
+                cwd: workspaceFolder,
+                shell: true
+            });
+
+            let stdout = '';
+            let stderr = '';
+
+            process.stdout?.on('data', (data) => {
+                const text = data.toString();
+                stdout += text;
+                this.outputChannel.append(text);
+            });
+
+            process.stderr?.on('data', (data) => {
+                const text = data.toString();
+                stderr += text;
+                this.outputChannel.append(text);
+            });
+
+            process.on('close', (code) => {
+                if (code === 0) {
+                    this.outputChannel.appendLine(`\n✓ Tests completed successfully`);
+                    this.parseResults(outputDir, filePath);
+                    resolve();
+                } else {
+                    this.outputChannel.appendLine(`\n✗ Tests failed with exit code: ${code}`);
+                    if (stderr) {
+                        this.outputChannel.appendLine(`Error: ${stderr}`);
+                    }
+                    resolve(); // Still resolve to continue with other tests
+                }
+            });
+
+            process.on('error', (error) => {
+                this.outputChannel.appendLine(`\nError running tests: ${error.message}`);
+                reject(error);
+            });
+        });
+    }
+
+    private async runTestMethod(filePath: string, methodName: string): Promise<void> {
+        // OEUnit runs entire test files, so we run the file and filter output
+        this.outputChannel.appendLine(`\nRunning test method: ${methodName} in ${path.basename(filePath)}`);
+        await this.runTestFile(filePath);
+    }
+
+    private resolveOutputDirectory(outputDir: string): string {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath || '';
+        return outputDir.replace('${workspaceFolder}', workspaceFolder);
+    }
+
+    private parseResults(outputDir: string, testFilePath: string): void {
+        try {
+            // Look for XML result files
+            const files = fs.readdirSync(outputDir);
+            const xmlFiles = files.filter(f => f.endsWith('.xml'));
+            
+            if (xmlFiles.length > 0) {
+                // Get the most recent file
+                const latestFile = xmlFiles
+                    .map(f => ({ name: f, time: fs.statSync(path.join(outputDir, f)).mtime.getTime() }))
+                    .sort((a, b) => b.time - a.time)[0];
+                
+                const xmlPath = path.join(outputDir, latestFile.name);
+                this.resultParser.parseResultFile(xmlPath, this.outputChannel);
+            }
+        } catch (error) {
+            this.outputChannel.appendLine(`Error parsing results: ${error}`);
+        }
+    }
+}

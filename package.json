@@ -1,0 +1,109 @@
+{
+  "name": "oeunit-test-explorer",
+  "displayName": "OEUnit Test Explorer",
+  "description": "Run and explore OpenEdge ABL unit tests using OEUnit",
+  "version": "0.0.1",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/orombauts/oeunit-test-explorer.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Testing"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/*.cls",
+    "workspaceContains:**/*.p"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "oeunit.restartServer",
+        "title": "OEUnit: Restart Server"
+      },
+      {
+        "command": "oeunit.stopServer",
+        "title": "OEUnit: Stop Server"
+      },
+      {
+        "command": "oeunit.startServer",
+        "title": "OEUnit: Start Server"
+      },
+      {
+        "command": "oeunit.pingServer",
+        "title": "OEUnit: Ping Server"
+      }
+    ],
+    "configuration": {
+      "title": "OEUnit Test Explorer",
+      "properties": {
+        "oeunit.home": {
+          "type": "string",
+          "default": "",
+          "description": "Path to OEUnit home directory"
+        },
+        "oeunit.runner": {
+          "type": "string",
+          "default": "",
+          "description": "Path to OEUnit runner procedure (relative to oeunit.home)"
+        },
+        "oeunit.exec": {
+          "type": "string",
+          "default": "_progres.exe",
+          "description": "OpenEdge executable name"
+        },
+        "oeunit.oeargs": {
+          "type": "string",
+          "default": "-cpinternal utf-8 -cpstream utf-8 -cpcoll Basic -cpcase Basic",
+          "description": "Additional OpenEdge arguments"
+        },
+        "oeunit.outputDirectory": {
+          "type": "string",
+          "default": "${workspaceFolder}\\OEResults\\xml",
+          "description": "Directory for test result output"
+        },
+        "oeunit.testFilePattern": {
+          "type": "string",
+          "default": "**/test/**/*.cls",
+          "description": "Glob pattern to find test files"
+        },
+        "oeunit.port": {
+          "type": "number",
+          "default": 5555,
+          "description": "Port number for the OEUnit persistent server"
+        },
+        "oeunit.loglevel": {
+          "type": "string",
+          "default": "error",
+          "enum": ["info", "warning", "error"],
+          "description": "Log level for OEUnit server (info=all messages, warning=warning+error, error=error only)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "18.x",
+    "@types/vscode": "^1.85.0",
+    "@types/xml2js": "^0.4.14",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "xml2js": "^0.6.2"
+  }
+}
+
