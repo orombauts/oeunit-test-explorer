@@ -2,7 +2,7 @@
   "name": "oeunit-test-explorer",
   "displayName": "OEUnit Test Explorer for OpenEdge ABL",
   "description": "Run and explore OpenEdge ABL unit tests using OEUnit",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
@@ -80,7 +80,11 @@
         "oeunit.loglevel": {
           "type": "string",
           "default": "error",
-          "enum": ["info", "warning", "error"],
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
           "description": "Log level for OEUnit server (info=all messages, warning=warning+error, error=error only)"
         }
       }
@@ -107,4 +111,3 @@
     "xml2js": "^0.6.2"
   }
 }
-
