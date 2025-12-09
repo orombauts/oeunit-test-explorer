@@ -1,6 +1,6 @@
 {
   "name": "oeunit-test-explorer",
-  "displayName": "OEUnit Test Explorer",
+  "displayName": "OEUnit Test Explorer for OpenEdge ABL",
   "description": "Run and explore OpenEdge ABL unit tests using OEUnit",
   "version": "0.0.1",
   "icon": "images/icon.png",
