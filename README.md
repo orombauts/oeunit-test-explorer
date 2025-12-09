@@ -55,7 +55,7 @@ Configure the extension in your workspace `.vscode/settings.json`:
 
 ```json
 {
-  "oeunit.home": "C:\\Workspace\\VSCode\\ADM_2_0\\adm-OEUnit\\OEUnit",
+  "oeunit.home": "C:\\Workspace\\OEUnit",
   "oeunit.runner": "Automation\\Pct\\RunTests.p",
   "oeunit.exec": "_progres.exe",
   "oeunit.oeargs": "-cpinternal utf-8 -cpstream utf-8 -cpcoll Basic -cpcase Basic",
