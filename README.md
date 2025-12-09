@@ -23,32 +23,6 @@ A Visual Studio Code extension for running and exploring OpenEdge ABL unit tests
 - OpenEdge ABL development environment
 - OEUnit testing framework installed
 
-### Install the Extension
-
-1. Navigate to the extension directory:
-   ```powershell
-   cd C:\Workspace\VSCode\ADM_2_0\oeunit-test-explorer
-   ```
-
-2. Install dependencies:
-   ```powershell
-   npm install
-   ```
-
-3. Compile the extension:
-   ```powershell
-   npm run compile
-   ```
-
-4. Install the extension:
-   - Press `F5` in VS Code to open a new Extension Development Host window
-   - OR package and install manually:
-     ```powershell
-     npm install -g @vscode/vsce
-     vsce package
-     ```
-     Then install the generated `.vsix` file via VS Code: Extensions > ... > Install from VSIX
-
 ## Configuration
 
 Configure the extension in your workspace `.vscode/settings.json`:
