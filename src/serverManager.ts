@@ -39,7 +39,10 @@ export class OEUnitServerManager {
         const oeunitServerPath = path.join(extensionPath, 'abl', 'OEUnitServer.p');
 
         if (!fs.existsSync(oeunitServerPath)) {
-            this.outputChannel.appendLine(`[ServerManager] ERROR: OEUnitServer.p not found at: ${oeunitServerPath}`);
+            this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
+            this.outputChannel.appendLine(`[ERROR] OEUnitServer.p not found`);
+            this.outputChannel.appendLine(`Expected location: ${oeunitServerPath}`);
+            this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
             return false;
         }
 
@@ -64,6 +67,15 @@ export class OEUnitServerManager {
             '-param', sessionParam
         ];
 
+        if (!fs.existsSync(progresPath)) {
+            this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
+            this.outputChannel.appendLine(`[ERROR] Progress executable not found`);
+            this.outputChannel.appendLine(`Expected location: ${progresPath}`);
+            this.outputChannel.appendLine(`Check your 'oeunit.exec' setting and DLC path configuration.`);
+            this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
+            return false;
+        }
+
         this.outputChannel.appendLine(`[ServerManager] Command: "${progresPath}" ${args.join(' ')}`);
         this.outputChannel.appendLine(`[ServerManager] Port: ${this.port}`);
         this.outputChannel.appendLine(`[ServerManager] SESSION:PARAMETER: ${sessionParam}`);
@@ -87,12 +99,21 @@ export class OEUnitServerManager {
             });
 
             this.serverProcess.on('error', (error) => {
-                this.outputChannel.appendLine(`[ServerManager] ERROR: ${error.message}`);
+                this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
+                this.outputChannel.appendLine(`[ERROR] Server process error: ${error.message}`);
+                this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
                 this.isRunning = false;
             });
 
             this.serverProcess.on('exit', (code) => {
-                this.outputChannel.appendLine(`[ServerManager] Server exited with code: ${code}`);
+                if (code !== 0 && code !== null) {
+                    this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
+                    this.outputChannel.appendLine(`[ERROR] Server exited with error code: ${code}`);
+                    this.outputChannel.appendLine(`Check the output above for error details.`);
+                    this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
+                } else {
+                    this.outputChannel.appendLine(`[ServerManager] Server exited with code: ${code}`);
+                }
                 this.isRunning = false;
                 this.serverProcess = null;
             });
@@ -114,7 +135,11 @@ export class OEUnitServerManager {
                     this.outputChannel.appendLine('[ServerManager] Server started successfully and responding to PING');
                     resolve(true);
                 } else {
-                    this.outputChannel.appendLine('[ServerManager] ERROR: Server failed to respond to PING');
+                    this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
+                    this.outputChannel.appendLine('[ERROR] Server failed to respond to PING');
+                    this.outputChannel.appendLine('The server process may have started but is not responding.');
+                    this.outputChannel.appendLine('Check the output above for any error messages.');
+                    this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
                     this.stopServer();
                     resolve(false);
                 }

@@ -351,8 +351,16 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
         if (!oeunitRunner) missing.push('oeunit.runner');
         if (!execName) missing.push('oeunit.exec');
         if (!oeArgs) missing.push('oeunit.oeargs');
+        const errorMsg = `OEUnit server cannot start. Missing configuration: ${missing.join(', ')}`;
         console.log('[OEUnit] Missing required configuration:', missing.join(', '));
-        console.log('[OEUnit] Missing configuration, skipping server startup');
+        serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
+        serverOutputChannel.show(true);
+        updateStatusBar('error');
+        vscode.window.showErrorMessage(errorMsg, 'Open Settings').then(selection => {
+            if (selection === 'Open Settings') {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'oeunit');
+            }
+        });
         return;
     }
 
@@ -360,7 +368,12 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
         // Get DLC path
         const projectJsonPath = path.join(workspaceFolder, 'openedge-project.json');
         if (!fs.existsSync(projectJsonPath)) {
+            const errorMsg = `OEUnit server cannot start. File not found: ${projectJsonPath}`;
             console.log('[OEUnit] openedge-project.json not found, skipping server startup');
+            serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
+            serverOutputChannel.show(true);
+            updateStatusBar('error');
+            vscode.window.showErrorMessage(errorMsg);
             return;
         }
 
@@ -372,7 +385,16 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
         const runtime = runtimes.find((rt: any) => rt.name === oeVersion);
         
         if (!runtime || !runtime.path) {
+            const errorMsg = `OEUnit server cannot start. DLC path not found for runtime '${oeVersion}'. Check abl.configuration.runtimes in settings.`;
             console.log('[OEUnit] DLC path not found, skipping server startup');
+            serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
+            serverOutputChannel.show(true);
+            updateStatusBar('error');
+            vscode.window.showErrorMessage(errorMsg, 'Open Settings').then(selection => {
+                if (selection === 'Open Settings') {
+                    vscode.commands.executeCommand('workbench.action.openSettings', 'abl.configuration.runtimes');
+                }
+            });
             return;
         }
 
@@ -444,15 +466,28 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
             vscode.window.showInformationMessage('OEUnit persistent server started successfully');
             console.log('[OEUnit] Persistent server started successfully');
         } else {
-            updateStatusBar('stopped');
-            vscode.window.showWarningMessage('OEUnit server failed to start, tests will run directly');
+            updateStatusBar('error');
+            serverOutputChannel.appendLine('\n[ERROR] Server failed to start. Check the output above for details.');
+            serverOutputChannel.show(true);
+            vscode.window.showErrorMessage('OEUnit server failed to start. Check OEUnit Server output for details.', 'Show Output').then(selection => {
+                if (selection === 'Show Output') {
+                    serverOutputChannel.show(true);
+                }
+            });
             console.log('[OEUnit] Server failed to start, tests will run directly');
         }
 
     } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
         console.error('[OEUnit] Error starting server:', error);
+        serverOutputChannel.appendLine(`\n[ERROR] Server startup failed: ${errorMsg}`);
+        serverOutputChannel.show(true);
         updateStatusBar('error');
-        vscode.window.showWarningMessage(`OEUnit server startup error: ${error}`);
+        vscode.window.showErrorMessage(`OEUnit server startup error: ${errorMsg}`, 'Show Output').then(selection => {
+            if (selection === 'Show Output') {
+                serverOutputChannel.show(true);
+            }
+        });
     }
 }
 
