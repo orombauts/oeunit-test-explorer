@@ -277,17 +277,14 @@ PROCEDURE HandleTestRequest:
 	
 	LogInfo(SUBSTITUTE("Running test: &1~n  Output: &2~n  LogLevel: &3~n  Runner: &4":U, TestFile, OutputDir, LogLevel, RunnerPath)).
 	
-	/* Remove old output XML file */
+    /* Although the test runner is designed to support multiple unit tests, it will be always called here with a single test class
+     * Therefor it is safe to delete the correspoding output XML file before running the test
+     */
 	RUN DeleteOldOutputFile(OutputDir, TestFile).
 	
-	/* Run the test - pass parameters as INPUT parameters */
-	RUN VALUE(RunnerPath) (OutputDir, TestFile, LogLevel, OUTPUT RunTestHasError).
+    /* Run the test; do not rely on the RunTestHasErrors output parameter - The TestRequest will only rely on a xml output file */
+	RUN VALUE(RunnerPath) (OutputDir, TestFile, LogLevel, OUTPUT RunTestHasErrors).
 
-    IF RunTestHasError
-    THEN DO:
-        RUN RaiseError("Test execution reported errors":U).
-    END.
-    
     RUN BuildSuccessResponse(OUTPUT Response).
     
 	CATCH e AS Progress.Lang.AppError:
