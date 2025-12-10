@@ -253,6 +253,9 @@ PROCEDURE HandleTestRequest:
     DEFINE VARIABLE OutputDir AS CHARACTER NO-UNDO.
     DEFINE VARIABLE TestFile AS CHARACTER NO-UNDO.
     DEFINE VARIABLE LogLevel AS CHARACTER NO-UNDO.
+
+    DEFINE VARIABLE RunTestHasError AS LOGICAL NO-UNDO.
+
 	DEFINE VARIABLE NumEntries AS INTEGER NO-UNDO.
 
     /* --------------------------------------------------------------------- */
@@ -278,8 +281,13 @@ PROCEDURE HandleTestRequest:
 	RUN DeleteOldOutputFile(OutputDir, TestFile).
 	
 	/* Run the test - pass parameters as INPUT parameters */
-	RUN VALUE(RunnerPath) (OutputDir, TestFile, LogLevel, OUTPUT Response).
+	RUN VALUE(RunnerPath) (OutputDir, TestFile, LogLevel, OUTPUT RunTestHasError).
 
+    IF RunTestHasError
+    THEN DO:
+        RUN RaiseError("Test execution reported errors":U).
+    END.
+    
     RUN BuildSuccessResponse(OUTPUT Response).
     
 	CATCH e AS Progress.Lang.AppError:

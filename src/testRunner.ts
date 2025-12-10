@@ -85,8 +85,23 @@ export class OEUnitTestRunner {
             const response = await this.serverManager!.runTest(runnerPath, resolvedOutputDir, filePath, 'debug');            
             if (response.startsWith('OK:')) {
                 this.outputChannel.appendLine('\n[OK] Tests completed successfully');
-                await this.parseResults(outputFilePath, run, testItem);
-                run.passed(testItem);
+                
+                // Check if XML output file exists
+                if (!fs.existsSync(outputFilePath)) {
+                    const errorMsg = `Test execution did not produce XML output file. This usually indicates a compilation error or test class initialization failure. Expected file: ${outputFilePath}`;
+                    this.outputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
+                    
+                    // Fail all child tests if they exist
+                    if (testItem.children.size > 0) {
+                        testItem.children.forEach(child => {
+                            run.failed(child, new vscode.TestMessage(errorMsg));
+                        });
+                    }
+                    run.failed(testItem, new vscode.TestMessage(errorMsg));
+                } else {
+                    await this.parseResults(outputFilePath, run, testItem);
+                    run.passed(testItem);
+                }
             } else if (response.startsWith('ERROR:')) {
                 const errorMsg = response.substring(6);
                 this.outputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
@@ -254,8 +269,23 @@ export class OEUnitTestRunner {
             childProcess.on('close', async (code) => {
                 if (code === 0) {
                     this.outputChannel.appendLine(`\n[OK] Tests completed successfully`);
-                    await this.parseResults(outputFilePath, run, testItem);
-                    run.passed(testItem);
+                    
+                    // Check if XML output file exists
+                    if (!fs.existsSync(outputFilePath)) {
+                        const errorMsg = `Test execution did not produce XML output file. This usually indicates a compilation error or test class initialization failure. Expected file: ${outputFilePath}`;
+                        this.outputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
+                        
+                        // Fail all child tests if they exist
+                        if (testItem.children.size > 0) {
+                            testItem.children.forEach(child => {
+                                run.failed(child, new vscode.TestMessage(errorMsg));
+                            });
+                        }
+                        run.failed(testItem, new vscode.TestMessage(errorMsg));
+                    } else {
+                        await this.parseResults(outputFilePath, run, testItem);
+                        run.passed(testItem);
+                    }
                     resolve();
                 } else {
                     this.outputChannel.appendLine(`\n[ERROR] Tests failed with exit code: ${code}`);
