@@ -1,5 +1,10 @@
 # Change Log
 
+## [0.0.5] - 2025-12-10
+
+### Fixed
+OEUnitServer won't start - Typo in variable name
+
 ## [0.0.4] - 2025-12-10
 
 ### Added
