@@ -9,10 +9,15 @@ export class OEUnitTestRunner {
     private outputChannel: vscode.OutputChannel;
     private resultParser: OEUnitResultParser;
     private serverManager: OEUnitServerManager | null = null;
+    private extensionVersion: string = 'unknown';
 
     constructor() {
         this.outputChannel = vscode.window.createOutputChannel('OEUnit Test Runner');
         this.resultParser = new OEUnitResultParser();
+    }
+
+    setExtensionVersion(version: string) {
+        this.extensionVersion = version;
     }
 
     setServerManager(serverManager: OEUnitServerManager | null) {
@@ -21,7 +26,7 @@ export class OEUnitTestRunner {
 
     async runTestFile(filePath: string, run: vscode.TestRun, testItem: vscode.TestItem): Promise<void> {
         this.outputChannel.show(true);
-        this.outputChannel.appendLine(`\nRunning tests in: ${path.basename(filePath)}`);
+        this.outputChannel.appendLine(`\nRunning tests in: ${path.basename(filePath)} (Extension v${this.extensionVersion})`);
         this.outputChannel.appendLine('-'.repeat(80));
 
         // Check if server is running

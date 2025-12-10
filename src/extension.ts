@@ -21,6 +21,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(controller);
 
     testRunner = new OEUnitTestRunner();
+    testRunner.setExtensionVersion(context.extension.packageJSON.version);
     
     // Create output channel once and reuse it
     serverOutputChannel = vscode.window.createOutputChannel('OEUnit Server');
@@ -417,8 +418,9 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
         }
 
         // Create and start server (reuse existing output channel)
+        const extensionVersion = context.extension.packageJSON.version;
         serverOutputChannel.appendLine('\n' + '='.repeat(80));
-        serverOutputChannel.appendLine('Starting OEUnit Server...');
+        serverOutputChannel.appendLine(`Starting OEUnit Server (Extension v${extensionVersion})...`);
         serverOutputChannel.appendLine('='.repeat(80));
         serverOutputChannel.show();
         serverManager = new OEUnitServerManager(serverOutputChannel, port);
