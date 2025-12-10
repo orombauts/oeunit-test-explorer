@@ -1,5 +1,7 @@
 # Change Log
 
+## [0.0.7] - 2025-12-10
+
 ### Added
 Support for test methods annotated with Ignore.  
 Update readme file with limitation section:
