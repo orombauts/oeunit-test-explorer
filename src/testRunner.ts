@@ -395,6 +395,8 @@ export class OEUnitTestRunner {
                                 run.failed(child, new vscode.TestMessage(result.message || 'Test failed'), result.time * 1000);
                             } else if (result.status === 'error') {
                                 run.errored(child, new vscode.TestMessage(result.message || 'Test error'), result.time * 1000);
+                            } else if (result.status === 'skipped') {
+                                run.skipped(child);
                             }
                         }
                     });

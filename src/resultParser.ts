@@ -4,7 +4,7 @@ import * as xml2js from 'xml2js';
 
 export interface TestResult {
     name: string;
-    status: 'passed' | 'failed' | 'error';
+    status: 'passed' | 'failed' | 'error' | 'skipped';
     time: number;
     message?: string;
 }
@@ -36,7 +36,7 @@ export class OEUnitResultParser {
                         const testName = testcase.$.name || 'Unknown';
                         const time = parseFloat(testcase.$.time || '0');
                         
-                        let status: 'passed' | 'failed' | 'error' = 'passed';
+                        let status: 'passed' | 'failed' | 'error' | 'skipped' = 'passed';
                         let message = '';
 
                         if (testcase.failure) {
@@ -51,6 +51,10 @@ export class OEUnitResultParser {
                             message = errors[0].$.message || errors[0]._ || 'Test error';
                             outputChannel.appendLine(`  ✗ ${testName} - ERROR`);
                             outputChannel.appendLine(`    ${message}`);
+                        } else if (testcase.skipped) {
+                            status = 'skipped';
+                            message = 'Test skipped/ignored';
+                            outputChannel.appendLine(`  ○ ${testName} - SKIPPED`);
                         } else {
                             outputChannel.appendLine(`  ✓ ${testName} - PASSED (${time}s)`);
                         }
@@ -85,7 +89,7 @@ export class OEUnitResultParser {
                                 const testName = testcase.$.name || 'Unknown';
                                 const time = parseFloat(testcase.$.time || '0');
                                 
-                                let status: 'passed' | 'failed' | 'error' = 'passed';
+                                let status: 'passed' | 'failed' | 'error' | 'skipped' = 'passed';
                                 let message = '';
 
                                 if (testcase.failure) {
@@ -96,6 +100,9 @@ export class OEUnitResultParser {
                                     status = 'error';
                                     const errors = Array.isArray(testcase.error) ? testcase.error : [testcase.error];
                                     message = errors[0].$.message || errors[0]._ || 'Test error';
+                                } else if (testcase.skipped) {
+                                    status = 'skipped';
+                                    message = 'Test skipped/ignored';
                                 }
 
                                 results.push({
