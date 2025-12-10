@@ -1,5 +1,13 @@
 # Change Log
 
+### Added
+Support for test methods annotated with Ignore.  
+Update readme file with limitation section:
+- Running a individual test method currently runs the whole unit test class.
+
+### Fixed
+Corrections in how unit tests are being lauched from a selected folder
+
 ## [0.0.5] - 2025-12-10
 
 ### Fixed
