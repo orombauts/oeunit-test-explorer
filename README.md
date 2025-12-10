@@ -183,6 +183,11 @@ npm run watch
 
 Press `F5` to launch the Extension Development Host.
 
+## Limitations
+
+- ** Running individual test methods **
+Running a individual test method currently runs the whole unit test class.
+
 ## License
 
 This extension is provided as-is for local development use.
