@@ -132,6 +132,8 @@ export function activate(context: vscode.ExtensionContext) {
                     console.log('[OEUnit] Folder detected - collecting children');
                     const childQueue: vscode.TestItem[] = [];
                     collectTests(test, childQueue);
+                    // Sort by file path to ensure consistent order
+                    childQueue.sort((a, b) => (a.uri?.fsPath || '').localeCompare(b.uri?.fsPath || ''));
                     for (const childTest of childQueue) {
                         if (childTest.uri && childTest.uri.fsPath.endsWith('.cls')) {
                             console.log('[OEUnit] Running child test file:', childTest.uri.fsPath);
@@ -186,7 +188,10 @@ export function activate(context: vscode.ExtensionContext) {
 function collectTests(item: vscode.TestItem, queue: vscode.TestItem[]): void {
     if (item.uri && item.uri.fsPath.endsWith('.cls')) {
         queue.push(item);
+        // Don't recurse into children if this is a test file - we already have it
+        return;
     }
+    // Recursively collect from children (folders first, then files within)
     item.children.forEach(child => collectTests(child, queue));
 }
 
