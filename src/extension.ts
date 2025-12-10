@@ -310,10 +310,18 @@ function extractTestMethods(content: string): TestMethod[] {
 
 async function startPersistentServer(testRunner: OEUnitTestRunner, context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('oeunit');
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+    const configuredWorkspace = config.get<string>('workspaceFolder');
+    
+    let workspaceFolder: string | undefined;
+    if (configuredWorkspace) {
+        workspaceFolder = configuredWorkspace;
+        console.log('[OEUnit] Using configured workspace folder:', workspaceFolder);
+    } else {
+        workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+        console.log('[OEUnit] Using first workspace folder:', workspaceFolder);
+    }
 
     console.log('[OEUnit] Starting server initialization...');
-    console.log('[OEUnit] Workspace folder:', workspaceFolder);
 
     if (!workspaceFolder) {
         console.log('[OEUnit] No workspace folder, skipping server startup');

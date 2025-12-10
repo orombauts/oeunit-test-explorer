@@ -53,6 +53,7 @@ Configure the extension in your workspace `.vscode/settings.json`:
 - **oeunit.testFilePattern**: Glob pattern to match test files (default: `**/test/**/*.cls`)
 - **oeunit.port**: Port number for the persistent test server (default: `5555`)
 - **oeunit.loglevel**: Server log level - `info`, `warning`, or `error` (default: `error`)
+- **oeunit.workspaceFolder**: Workspace folder path to use for OEUnit server. If not specified, defaults to the first workspace folder. Useful in multi-root workspace scenarios
 
 ### Project Configuration
 
@@ -172,16 +173,6 @@ Check the **Developer Tools Console** (Help > Toggle Developer Tools) for detail
 ### Port Conflicts
 
 If port 5555 is already in use, change `oeunit.port` to a different value and restart the server.
-
-## Development
-
-### Building from Source
-
-```powershell
-cd C:\Workspace\VSCode\ADM_2_0\oeunit-test-explorer
-npm install
-npm run compile
-```
 
 ### Watch Mode
 

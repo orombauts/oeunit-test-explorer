@@ -86,6 +86,11 @@
             "error"
           ],
           "description": "Log level for OEUnit server (info=all messages, warning=warning+error, error=error only)"
+        },
+        "oeunit.workspaceFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Workspace folder path to use for OEUnit server (defaults to first workspace folder if not specified)"
         }
       }
     }
