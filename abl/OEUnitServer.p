@@ -1,3 +1,15 @@
+USING Progress.Json.ObjectModel.JsonArray from propath.
+using Progress.Json.ObjectModel.* from propath.
+USING Progress.Json.ObjectModel.JsonObject FROM PROPATH.
+USING Progress.Json.ObjectModel.JsonConstruct FROM PROPATH.
+USING Progress.Json.ObjectModel.ObjectModelParser FROM PROPATH.
+USING OEUnit.Util.Instance FROM PROPATH.
+USING OEUnit.Runner.TestClassResult FROM PROPATH.
+USING OEUnit.Runner.TestResult FROM PROPATH.
+USING OEUnit.Util.List FROM PROPATH.
+USING OEUnit.Runners.OEUnitRunner FROM PROPATH.
+USING OEUnit.Runners.Manipulation.MethodFilter FROM PROPATH.
+
 /* OEUnitServer.p
  * Purpose: Persistent test server that listens on a socket for test requests
  * Command-line Parameters via SESSION:PARAMETER:
@@ -15,9 +27,9 @@ DEFINE VARIABLE SessionParameters AS CHARACTER NO-UNDO.
 DEFINE VARIABLE ParameterIndex AS INTEGER NO-UNDO.
 DEFINE VARIABLE DoContinue AS LOGICAL NO-UNDO INITIAL TRUE.
 
-FUNCTION LogInfo RETURNS LOGICAL (LogMessage AS CHARACTER) FORWARD.
-FUNCTION LogWarning RETURNS LOGICAL (LogMessage AS CHARACTER) FORWARD.
-FUNCTION LogError RETURNS LOGICAL (LogMessage AS CHARACTER) FORWARD.
+FUNCTION LogInfo RETURNS LOGICAL PRIVATE (LogMessage AS CHARACTER) FORWARD.
+FUNCTION LogWarning RETURNS LOGICAL PRIVATE (LogMessage AS CHARACTER) FORWARD.
+FUNCTION LogError RETURNS LOGICAL PRIVATE (LogMessage AS CHARACTER) FORWARD.
 
 /* --------------------------------------------------------------------- */
 
@@ -144,59 +156,54 @@ END PROCEDURE.
 PROCEDURE HandleClientRead:
 
     DEFINE VARIABLE ClientSocket AS HANDLE NO-UNDO.
-    DEFINE VARIABLE Request_ AS MEMPTR NO-UNDO.
-    DEFINE VARIABLE Response_ AS MEMPTR NO-UNDO.
-    DEFINE VARIABLE Request AS CHARACTER NO-UNDO.
-    DEFINE VARIABLE Response AS CHARACTER NO-UNDO.
+
+    DEFINE VARIABLE JsonRequest AS JsonObject NO-UNDO.
+
+    DEFINE VARIABLE RequestType AS CHARACTER NO-UNDO.
+
+    DEFINE VARIABLE ResponsePtr AS MEMPTR NO-UNDO.
+
     DEFINE VARIABLE BytesAvailable AS INTEGER NO-UNDO.
-    DEFINE VARIABLE BytesRead AS INTEGER NO-UNDO.
+
+    DEFINE VARIABLE ResponseSize AS INT64 NO-UNDO.
 
     /* --------------------------------------------------------------------- */
 
-    /* Get the socket handle from the trigger */
-    ASSIGN ClientSocket = SELF.
+    DO ON ERROR UNDO, LEAVE:
+        ASSIGN
+            ClientSocket = SELF
+            BytesAvailable = IF ClientSocket:CONNECTED() THEN ClientSocket:GET-BYTES-AVAILABLE() ELSE 0
+            .
+
+        LogInfo(SUBSTITUTE("Bytes available: &1":U, BytesAvailable)).
     
-    LogInfo("HandleClientRead triggered":U).
-    
-    IF ClientSocket:CONNECTED()
-    THEN DO:
-        ASSIGN BytesAvailable = ClientSocket:GET-BYTES-AVAILABLE().
+        IF BytesAvailable <= 0
+        THEN RUN RaiseError("No bytes available to read from client":U).
+
+        LogInfo("Reading request from client...":U).
+
+        RUN ReadRequest(ClientSocket, OUTPUT JsonRequest).
+
+        RUN HandleRequest(JsonRequest, OUTPUT ResponsePtr).
+
+        CATCH e AS Progress.Lang.AppError:
+            RUN BuildErrorResponse(e, OUTPUT ResponsePtr).
+        END CATCH.
     END.
-    
-    IF BytesAvailable > 0
-    THEN DO ON ERROR UNDO, LEAVE:
-        /* Read request from client using memptr */
-        SET-SIZE(Request_) = BytesAvailable.
-        ClientSocket:READ(Request_, 1, BytesAvailable, 1) NO-ERROR.
-        BytesRead = ClientSocket:BYTES-READ.
-        
-        LogInfo(SUBSTITUTE("Bytes read: &1":U, BytesRead)).
-        
-        IF BytesRead > 0
-        THEN DO:
-            ASSIGN Request = GET-STRING(Request_, 1, BytesRead).
-            
-            LogInfo(SUBSTITUTE("Received request: &1":U, Request)).
-            
-            /* Handle request */
-            IF Request = "PING":U
-            THEN DO:
-                RUN HandlePingRequest(OUTPUT Response).
-            END.
-            ELSE IF Request = "SHUTDOWN":U
-            THEN DO:
-                RUN HandleShutdownRequest(OUTPUT Response).
-            END.
-            ELSE DO:
-                RUN HandleTestRequest(Request, OUTPUT Response).
-            END.
-            
-            /* Send response back to client */
-            SET-SIZE(Response_) = LENGTH(Response) + 1.
-            PUT-STRING(Response_, 1, LENGTH(Response)) = Response.
-            ClientSocket:WRITE(Response_, 1, LENGTH(Response)) NO-ERROR.
-            
-            LogInfo(SUBSTITUTE("Response sent: &1":U, Response)).
+
+    ASSIGN ResponseSize = IF ResponsePtr = ? THEN 0 ELSE GET-SIZE(ResponsePtr).
+
+    IF ResponseSize <= 0
+    THEN DO:
+        LogError("Response message is empty").
+    END.
+    ELSE DO ON ERROR UNDO, LEAVE:
+        /* Send response back to client */
+        ClientSocket:WRITE(ResponsePtr, 1, ResponseSize).
+        LogInfo(SUBSTITUTE("Responsed with &1 bytes":U, ResponseSize)).
+
+        CATCH e AS Progress.Lang.AppError:
+            RUN RaiseError(SUBSTITUTE("Failed to send response to client: &1":U, e:GetMessage(1))).
         END.
     END.
 
@@ -207,9 +214,90 @@ PROCEDURE HandleClientRead:
             ClientSocket:DISCONNECT().
             DELETE OBJECT ClientSocket NO-ERROR.
         END.
-        SET-SIZE(Request_) = 0.
-        SET-SIZE(Response_) = 0.
+        SET-SIZE(ResponsePtr) = 0.
     END FINALLY.
+
+END PROCEDURE.
+
+/*****************************************************************************/
+
+PROCEDURE ReadRequest PRIVATE:
+
+    DEFINE INPUT PARAMETER ClientSocket AS HANDLE NO-UNDO.
+    DEFINE OUTPUT PARAMETER JsonRequest AS JsonObject NO-UNDO.
+
+    DEFINE VARIABLE BytesAvailable AS INTEGER NO-UNDO.
+    
+    DEFINE VARIABLE RequestPtr AS MEMPTR NO-UNDO.
+
+    DEFINE VARIABLE MyParser AS ObjectModelParser NO-UNDO.
+    DEFINE VARIABLE JsonParsed AS JsonConstruct NO-UNDO.
+
+    /* --------------------------------------------------------------------- */
+
+    ASSIGN BytesAvailable = ClientSocket:GET-BYTES-AVAILABLE().
+
+    IF BytesAvailable > 0
+    THEN DO:
+        SET-SIZE(RequestPtr) = BytesAvailable.
+        ClientSocket:READ(RequestPtr, 1, BytesAvailable, 1) NO-ERROR.
+
+        IF ClientSocket:BYTES-READ <> BytesAvailable OR GET-SIZE(RequestPtr) = 0
+        THEN RUN RaiseError("Failed to read complete request from client":U).
+
+        DO ON ERROR UNDO, THROW:
+            ASSIGN
+                JsonParsed = NEW ObjectModelParser():Parse(RequestPtr)
+                JsonRequest = CAST(JsonParsed, JsonObject)
+                .
+            CATCH e AS Progress.Lang.AppError:
+                RUN RaiseError(SUBSTITUTE("Failed to parse request: &1":U, e:GetMessage(1))).  
+            END.
+        END.
+    END.
+
+    FINALLY:
+        SET-SIZE(RequestPtr) = 0.
+    END FINALLY.
+
+END PROCEDURE.
+
+/*****************************************************************************/
+
+PROCEDURE HandleRequest PRIVATE:
+
+    DEFINE INPUT PARAMETER JsonRequest AS JsonObject NO-UNDO.
+    DEFINE OUTPUT PARAMETER ResponsePtr AS MEMPTR NO-UNDO.
+
+    DEFINE VARIABLE RequestType AS CHARACTER NO-UNDO.
+
+    /* --------------------------------------------------------------------- */
+
+    IF JsonRequest = ? 
+    THEN DO:
+        RUN RaiseError("Received null request":U).
+    END.
+
+    ASSIGN RequestType = JsonRequest:GetCharacter("RequestType":U).
+
+    CASE RequestType:
+        WHEN "PING":U
+        THEN RUN HandlePingRequest(OUTPUT ResponsePtr).
+        
+        WHEN "SHUTDOWN":U
+        THEN RUN HandleShutdownRequest(OUTPUT ResponsePtr).
+        
+        WHEN "TEST":U
+        THEN RUN HandleTestRequest(JsonRequest, OUTPUT ResponsePtr).
+        
+        OTHERWISE DO:
+            RUN RaiseError(SUBSTITUTE("Unknown request type: &1":U, RequestType)).
+        END.
+    END CASE.
+
+    CATCH e AS Progress.Lang.AppError:
+        RUN BuildErrorResponse(e, OUTPUT ResponsePtr).
+    END CATCH.
 
 END PROCEDURE.
 
@@ -217,11 +305,11 @@ END PROCEDURE.
 
 PROCEDURE HandlePingRequest:
 
-    DEFINE OUTPUT PARAMETER Response AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER Response AS MEMPTR NO-UNDO.
 
     /* --------------------------------------------------------------------- */
 
-    ASSIGN Response = "PONG":U.
+    RUN BuildResponse("PONG":U, OUTPUT Response).
 
     LogInfo("PING received, responding with PONG":U).
 
@@ -231,14 +319,15 @@ END PROCEDURE.
 
 PROCEDURE HandleShutdownRequest:
 
-    DEFINE OUTPUT PARAMETER Response AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER Response AS MEMPTR NO-UNDO.
 
     /* --------------------------------------------------------------------- */
 
-    ASSIGN
-        Response = "OK:SHUTDOWN":U
-        DoContinue = FALSE.
+    RUN BuildResponse("Shutdown initiated":U, OUTPUT Response).
+
     LogInfo("Shutdown requested":U).
+
+    ASSIGN DoContinue = FALSE.
 
 END PROCEDURE.
 
@@ -246,13 +335,14 @@ END PROCEDURE.
 
 PROCEDURE HandleTestRequest:
 
-    DEFINE INPUT PARAMETER Request AS CHARACTER NO-UNDO.
-    DEFINE OUTPUT PARAMETER Response AS CHARACTER NO-UNDO.
+    DEFINE INPUT PARAMETER TestRequest AS JsonObject NO-UNDO.
+    DEFINE OUTPUT PARAMETER Response AS MEMPTR NO-UNDO.
     
-    DEFINE VARIABLE RunnerPath AS CHARACTER NO-UNDO.
-    DEFINE VARIABLE OutputDir AS CHARACTER NO-UNDO.
     DEFINE VARIABLE TestFile AS CHARACTER NO-UNDO.
+    DEFINE VARIABLE TestMethod AS CHARACTER NO-UNDO.
     DEFINE VARIABLE LogLevel AS CHARACTER NO-UNDO.
+
+    DEFINE VARIABLE JsonOutput AS JsonObject NO-UNDO.
 
     DEFINE VARIABLE RunTestHasErrors AS LOGICAL NO-UNDO.
 
@@ -260,72 +350,202 @@ PROCEDURE HandleTestRequest:
 
     /* --------------------------------------------------------------------- */
 
-    /* Parse test request: "runnerPath,outputDir,testFile,logLevel" */
-    ASSIGN NumEntries = NUM-ENTRIES(Request).
+    ASSIGN
+        TestFile = TestRequest:GetCharacter("TestFile":U)
+        TestMethod = TestRequest:GetCharacter("TestMethod":U)
+        LogLevel = TestRequest:GetCharacter("LogLevel":U).
 	
-	IF NumEntries <> 4
-	THEN DO:
-	    RUN RaiseError("Invalid number of entries in request message":U).
-	END.
+    RUN RunTest(TestFile, TestMethod, OUTPUT JsonOutput).
 
-	ASSIGN
-		RunnerPath = ENTRY(1, Request)
-		OutputDir = ENTRY(2, Request)
-		TestFile = ENTRY(3, Request)
-		LogLevel = ENTRY(4, Request)
-		.
-	
-	LogInfo(SUBSTITUTE("Running test: &1~n  Output: &2~n  LogLevel: &3~n  Runner: &4":U, TestFile, OutputDir, LogLevel, RunnerPath)).
-	
-    /* Although the test runner is designed to support multiple unit tests, it will be always called here with a single test class
-     * Therefor it is safe to delete the correspoding output XML file before running the test
-     */
-	RUN DeleteOldOutputFile(OutputDir, TestFile).
-	
-    /* Run the test; do not rely on the RunTestHasErrors output parameter - The TestRequest will only rely on a xml output file */
-	RUN VALUE(RunnerPath) (OutputDir, TestFile, LogLevel, OUTPUT RunTestHasErrors).
-
-    RUN BuildSuccessResponse(OUTPUT Response).
-    
-	CATCH e AS Progress.Lang.AppError:
-		RUN BuildErrorResponse(e, OUTPUT Response).
-	END CATCH.
+    JsonOutput:WRITE(Response, FALSE).
 
 END PROCEDURE.
 
 /*****************************************************************************/
 
-PROCEDURE DeleteOldOutputFile:
+PROCEDURE PerformTest PRIVATE:
 
-    DEFINE INPUT PARAMETER OutputDir AS CHARACTER NO-UNDO.
     DEFINE INPUT PARAMETER TestFile AS CHARACTER NO-UNDO.
+    DEFINE INPUT PARAMETER TestMethod AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER JsonOutput AS JsonObject NO-UNDO.
+
+    DEFINE VARIABLE MethodIndex AS INTEGER NO-UNDO.
+    DEFINE VARIABLE MethodName AS CHARACTER NO-UNDO.
+
+    DEFINE VARIABLE TestObject AS Progress.Lang.Object NO-UNDO.
+    DEFINE VARIABLE TestRunner AS OEUnitRunner NO-UNDO.
+
+    /* --------------------------------------------------------------------- */
     
-    DEFINE VARIABLE TestClassName AS CHARACTER NO-UNDO.
-    DEFINE VARIABLE OutputFile AS CHARACTER NO-UNDO.
+    IF TestFile = ? OR TestFile = "":U
+    THEN RUN RaiseError("No test file specified in request":U).
+
+    LogInfo(SUBSTITUTE("Running test file: &1, case(s): &2":U, TestFile,
+        IF TestMethod > "":U THEN TestMethod ELSE "All")).
+
+    ASSIGN TestRunner = NEW OEUnitRunner().
+
+    IF TestMethod > "":U
+    THEN DO:
+        ASSIGN TestRunner:Filter = NEW MethodFilter(TestMethod).
+    END.
+
+    RUN CreateTestObject(TestFile, OUTPUT TestObject).
+
+    TestRunner:RunTest(TestObject).
+
+    RUN TransformTestResultsToJson(TestRunner:Results, OUTPUT JsonOutput).
+
+    FINALLY:
+        DELETE OBJECT TestObject NO-ERROR.
+        DELETE OBJECT TestRunner NO-ERROR.
+    END FINALLY.
+
+END PROCEDURE.
+
+/*****************************************************************************/
+
+PROCEDURE CreateTestObject:
+
+    DEFINE INPUT PARAMETER TestFile AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER TestObject AS Progress.Lang.Object NO-UNDO.
 
     /* --------------------------------------------------------------------- */
 
-    FILE-INFO:FILE-NAME = OutputDir.
-    IF FILE-INFO:FULL-PATHNAME <> ?
-    THEN DO:
-        /* Extract class name from test file path */
-        TestClassName = REPLACE(SUBSTRING(TestFile, INDEX(TestFile, "test":U)), "~\":U, ".":U).
-        TestClassName = REPLACE(TestClassName, ".cls":U, ".xml":U).
-        OutputFile = OutputDir + (IF SUBSTRING(OutputDir, LENGTH(OutputDir), 1) = "~\":U THEN "":U ELSE "~\":U) + TestClassName.
-        
-        FILE-INFO:FILE-NAME = OutputFile.
-        IF FILE-INFO:FULL-PATHNAME <> ?
-        THEN DO:
-            OS-DELETE VALUE(OutputFile).
-            LogInfo(SUBSTITUTE("Deleted old output file: &1":U, OutputFile)).
-        END.
-    END.
+    ASSIGN TestObject = Instance:FromFile(TestFile).
+
+    CATCH e as Progress.Lang.AppError:
+        RUN RaiseError(SUBSTITUTE("Failed to create test object from file &1: &2":U, TestFile, e:GetMessage(1))).
+    END CATCH.
 
 END PROCEDURE.
 
 /*****************************************************************************/
 
-PROCEDURE CreateAliasesForDatabase:
+PROCEDURE TransformTestResultsToJson PRIVATE:
+
+    DEFINE INPUT PARAMETER TestResults AS TestClassResult NO-UNDO.   
+    DEFINE OUTPUT PARAMETER JsonOutput AS JsonObject NO-UNDO.
+
+    DEFINE VARIABLE ResultIndex AS INTEGER NO-UNDO.
+    DEFINE VARIABLE ErrorIndex AS INTEGER NO-UNDO.
+
+    DEFINE VARIABLE InputFile AS CHARACTER NO-UNDO.
+    DEFINE VARIABLE StackTrace AS CHARACTER NO-UNDO.
+
+    DEFINE VARIABLE CallStack AS LONGCHAR NO-UNDO.
+
+    DEFINE VARIABLE CurrentResult AS TestResult NO-UNDO.
+    DEFINE VARIABLE ErrorList AS List NO-UNDO.
+
+    DEFINE VARIABLE JsonSummary AS JsonObject NO-UNDO.
+    DEFINE VARIABLE JsonTestCases AS JsonArray NO-UNDO.
+    DEFINE VARIABLE JsonTestCase AS JsonObject NO-UNDO.
+    DEFINE VARIABLE JsonErrorStack AS JsonArray NO-UNDO.
+    
+    /* --------------------------------------------------------------------- */
+
+    ASSIGN
+        JsonOutput = NEW JsonObject()
+        JsonSummary = NEW JsonObject().
+
+    JsonOutput:Add("Status":U, "COMPLETED":U).
+
+    JsonSummary:Add("Errors":U, TestResults:CountTestsWithStatus(TestResult:StatusError)).
+    JsonSummary:Add("Skipped":U, TestResults:CountTestsWithStatus(TestResult:StatusIgnored)).
+    JsonSummary:Add("Total":U, TestResults:ResultCount).
+    JsonSummary:Add("DurationMs":U, TestResults:GetDuration()).
+    JsonSummary:Add("Failures":U, TestResults:CountTestsWithStatus(TestResult:StatusFailed)).
+    JsonSummary:Add("Name":U, TestResults:GetName()).
+    JsonOutput:Add("Summary":U, JsonSummary).
+
+    JsonTestCases = NEW JsonArray().
+    
+    DO ResultIndex = 1 TO TestResults:ResultCount:
+        JsonTestCase = NEW JsonObject().
+        CurrentResult = TestResults:GetResult(ResultIndex).
+
+        IF CurrentResult:GetErrors():Size > 0 
+        THEN DO:
+            JsonTestCase:Add("Status":U, "Failed":U).
+            JsonTestCase:Add("Failure":U, CurrentResult:GetMessage()).
+            ASSIGN
+                ErrorList = currentResult:GetErrors()
+                JsonErrorStack = NEW JsonArray().
+            DO ErrorIndex = 1 TO ErrorList:Size:
+                ASSIGN CallStack = CAST(ErrorList:Get(ErrorIndex), Progress.Lang.Error):CallStack.
+                JsonErrorStack:Add(CallStack).
+            END.
+            JsonTestCase:Add("ErrorStack":U, JsonErrorStack).
+        END.
+        ELSE IF CurrentResult:GetStatus() = TestResult:StatusIgnored
+        THEN DO:
+            JsonTestCase:Add("Status":U, "Skipped":U).
+        END.
+        ELSE DO:
+            JsonTestCase:Add("Status":U, "Passed":U).
+        END.
+
+        JsonTestCases:Add(JsonTestCase).
+    END.
+
+    JsonOutput:Add("TestCases":U, JsonTestCases).
+
+    CATCH e as Progress.Lang.AppError:
+        RUN RaiseError(SUBSTITUTE("Failed to create JSON test result output: &1":U, e:GetMessage(1))).
+    END CATCH.
+
+END PROCEDURE.
+
+/*****************************************************************************/
+
+PROCEDURE BuildErrorResponse PRIVATE:
+
+    DEFINE INPUT PARAMETER e AS Progress.Lang.AppError NO-UNDO.
+    DEFINE OUTPUT PARAMETER Response AS MEMPTR NO-UNDO.
+
+    DEFINE VARIABLE JsonOutput AS JsonObject NO-UNDO.
+
+    DEFINE VARIABLE ErrorMessage AS CHARACTER NO-UNDO.
+
+    /* --------------------------------------------------------------------- */
+
+    LogError(SUBSTITUTE("Error: &1":U, ErrorMessage)).
+
+    ASSIGN
+        ErrorMessage = e:GetMessage(1)
+        JsonOutput = NEW JsonObject().
+
+    JsonOutput:Add("Status":U, "ERROR":U).
+    JsonOutput:Add("Reply":U, ErrorMessage).
+
+    JsonOutput:WRITE(Response, FALSE).
+
+END PROCEDURE.
+
+/*****************************************************************************/
+
+PROCEDURE BuildResponse PRIVATE:
+
+    DEFINE INPUT PARAMETER ResponseString AS CHARACTER NO-UNDO.
+    DEFINE OUTPUT PARAMETER Response AS MEMPTR NO-UNDO.
+
+    DEFINE VARIABLE JsonOutput AS JsonObject NO-UNDO.
+
+    /* --------------------------------------------------------------------- */
+    
+    ASSIGN JsonOutput = NEW JsonObject().
+
+    JsonOutput:Add("Status":U, "OK":U).
+    JsonOutput:Add("Reply":U, ResponseString).
+
+    JsonOutput:WRITE(Response, FALSE).
+
+END PROCEDURE.
+
+/*****************************************************************************/
+
+PROCEDURE CreateAliasesForDatabase PRIVATE:
 
     DEFINE INPUT PARAMETER DbName_ AS CHARACTER NO-UNDO.
     DEFINE INPUT PARAMETER Aliases AS CHARACTER NO-UNDO.
@@ -363,7 +583,7 @@ END PROCEDURE.
 
 /*****************************************************************************/
 
-PROCEDURE RaiseError:
+PROCEDURE RaiseError PRIVATE:
 
     DEFINE INPUT PARAMETER LogMessage AS CHARACTER NO-UNDO.
 
@@ -372,35 +592,6 @@ PROCEDURE RaiseError:
     LogError(LogMessage).
     
     UNDO, THROW NEW Progress.Lang.AppError(LogMessage, 1).
-
-END PROCEDURE.
-
-/*****************************************************************************/
-
-PROCEDURE BuildSuccessResponse:
-
-    DEFINE OUTPUT PARAMETER Response AS CHARACTER NO-UNDO.
-
-    /* --------------------------------------------------------------------- */
-
-	ASSIGN Response = "OK:COMPLETE":U.
-
-	LogInfo("Test completed successfully":U).
-
-END PROCEDURE.
-
-/*****************************************************************************/
-
-PROCEDURE BuildErrorResponse:
-
-    DEFINE INPUT PARAMETER e AS Progress.Lang.AppError NO-UNDO.
-    DEFINE OUTPUT PARAMETER Response AS CHARACTER NO-UNDO.
-
-    /* --------------------------------------------------------------------- */
-
-    ASSIGN Response = "ERROR: ":U + e:GetMessage(1).
-    
-    LogError(SUBSTITUTE("Test execution error: &1":U, e:GetMessage(1))).
 
 END PROCEDURE.
 
@@ -442,7 +633,7 @@ END FUNCTION.
 
 /*****************************************************************************/
 
-FUNCTION LogInfo RETURNS LOGICAL(LogMessage AS CHARACTER):
+FUNCTION LogInfo RETURNS LOGICAL PRIVATE(LogMessage AS CHARACTER):
 
     RETURN LogMessage("INFO":U, LogMessage).
 
@@ -450,7 +641,7 @@ END FUNCTION.
 
 /*****************************************************************************/
 
-FUNCTION LogError RETURNS LOGICAL(LogMessage AS CHARACTER):
+FUNCTION LogError RETURNS LOGICAL PRIVATE(LogMessage AS CHARACTER):
 
     RETURN LogMessage("ERROR":U, LogMessage).
 
@@ -458,9 +649,8 @@ END FUNCTION.
 
 /*****************************************************************************/
 
-FUNCTION LogWarning RETURNS LOGICAL(LogMessage AS CHARACTER):
+FUNCTION LogWarning RETURNS LOGICAL PRIVATE (LogMessage AS CHARACTER):
 
     RETURN LogMessage("WARNING":U, LogMessage).
 
 END FUNCTION.
-
