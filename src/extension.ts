@@ -36,7 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
     statusBarItem.show();
     
     // Initialize and start the persistent test server
-    startPersistentServer(testRunner, context);
+    startPersistentServer(testRunner, context, false);
     
     // Register commands
     context.subscriptions.push(
@@ -149,12 +149,14 @@ export function activate(context: vscode.ExtensionContext) {
                     continue;
                 }
 
-                // For test methods (children with no children of their own), run the parent file
+                // For test methods (children with no children of their own), run the parent file with method name
                 if (test.children.size === 0 && test.parent && test.parent.uri) {
-                    console.log('[OEUnit] Running test method, parent file:', test.parent.uri.fsPath);
+                    console.log('[OEUnit] Running test method:', test.label, 'parent file:', test.parent.uri.fsPath);
+                    // Extract method name from test ID (format: "filePath::methodName")
+                    const methodName = test.id.includes('::') ? test.id.split('::')[1] : test.label;
                     run.started(test);
                     try {
-                        await testRunner.runTestFile(test.parent.uri.fsPath, run, test.parent);
+                        await testRunner.runTestFile(test.parent.uri.fsPath, run, test, methodName);
                     } catch (error) {
                         console.error('[OEUnit] Error running test:', error);
                         run.failed(test, new vscode.TestMessage(`Error: ${error}`));
@@ -277,9 +279,27 @@ interface TestMethod {
     line: number;
 }
 
+function isAbstractClass(content: string): boolean {
+    // Check if the class is declared as abstract
+    const lines = content.split('\n');
+    for (const line of lines) {
+        const trimmedLine = line.trim().toUpperCase();
+        // Match CLASS ... ABSTRACT pattern
+        if (trimmedLine.startsWith('CLASS ') && trimmedLine.includes('ABSTRACT')) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function extractTestMethods(content: string): TestMethod[] {
     const methods: TestMethod[] = [];
     const lines = content.split('\n');
+    
+    // Skip abstract classes - they should not be tested
+    if (isAbstractClass(content)) {
+        return methods;
+    }
     
     let isTestAnnotated = false;
     
@@ -314,8 +334,16 @@ function extractTestMethods(content: string): TestMethod[] {
     return methods;
 }
 
-async function startPersistentServer(testRunner: OEUnitTestRunner, context: vscode.ExtensionContext) {
+async function startPersistentServer(testRunner: OEUnitTestRunner, context: vscode.ExtensionContext, isManual: boolean = false) {
     const config = vscode.workspace.getConfiguration('oeunit');
+    const autostart = config.get<boolean>('autostart', true);
+    
+    if (!autostart && !isManual) {
+        console.log('[OEUnit] Autostart disabled, skipping automatic server startup');
+        updateStatusBar('stopped');
+        return;
+    }
+    
     const configuredWorkspace = config.get<string>('workspaceFolder');
     
     let workspaceFolder: string | undefined;
@@ -334,54 +362,34 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
         return;
     }
 
-    // Get all required configuration
-    const oeunitHome = config.get<string>('home');
-    const oeunitRunner = config.get<string>('runner');
-    const execName = config.get<string>('exec');
-    const oeArgs = config.get<string>('oeargs');
-    const port = config.get<number>('port') || 5555;
-    const loglevel = config.get<string>('loglevel') || 'error';
-
-    console.log('[OEUnit] Configuration values:');
-    console.log('  - oeunit.home:', oeunitHome || '(empty)');
-    console.log('  - oeunit.runner:', oeunitRunner || '(empty)');
-    console.log('  - oeunit.exec:', execName || '(empty)');
-    console.log('  - oeunit.oeargs:', oeArgs ? `${oeArgs.substring(0, 50)}...` : '(empty)');
-    console.log('  - oeunit.port:', port);
-    console.log('  - oeunit.loglevel:', loglevel);
-
-    if (!oeunitHome || !oeunitRunner || !execName || !oeArgs) {
-        const missing = [];
-        if (!oeunitHome) missing.push('oeunit.home');
-        if (!oeunitRunner) missing.push('oeunit.runner');
-        if (!execName) missing.push('oeunit.exec');
-        if (!oeArgs) missing.push('oeunit.oeargs');
-        const errorMsg = `OEUnit server cannot start. Missing configuration: ${missing.join(', ')}`;
-        console.log('[OEUnit] Missing required configuration:', missing.join(', '));
+    // Check for openedge-project.json first
+    const projectJsonPath = path.join(workspaceFolder, 'openedge-project.json');
+    if (!fs.existsSync(projectJsonPath)) {
+        const errorMsg = `OEUnit server cannot start. File not found: ${projectJsonPath}`;
+        console.log('[OEUnit] openedge-project.json not found, skipping server startup');
         serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
         serverOutputChannel.show(true);
         updateStatusBar('error');
-        vscode.window.showErrorMessage(errorMsg, 'Open Settings').then(selection => {
-            if (selection === 'Open Settings') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'oeunit');
-            }
-        });
+        vscode.window.showErrorMessage(errorMsg);
         return;
     }
 
-    try {
-        // Get DLC path
-        const projectJsonPath = path.join(workspaceFolder, 'openedge-project.json');
-        if (!fs.existsSync(projectJsonPath)) {
-            const errorMsg = `OEUnit server cannot start. File not found: ${projectJsonPath}`;
-            console.log('[OEUnit] openedge-project.json not found, skipping server startup');
-            serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
-            serverOutputChannel.show(true);
-            updateStatusBar('error');
-            vscode.window.showErrorMessage(errorMsg);
-            return;
-        }
+    // Get all required configuration
+    const execName = config.get<string>('exec');
+    const oeArgs = config.get<string>('oeargs');
+    const port = config.get<number>('port') || 5555;
+    const timeout = config.get<number>('timeout') || 60;
+    const loglevel = config.get<string>('loglevel') || 'error';
 
+    console.log('[OEUnit] Configuration values:');
+    console.log('  - oeunit.exec:', execName || '(empty)');
+    console.log('  - oeunit.oeargs:', oeArgs ? `${oeArgs.substring(0, 50)}...` : '(empty)');
+    console.log('  - oeunit.port:', port);
+    console.log('  - oeunit.timeout:', timeout);
+    console.log('  - oeunit.loglevel:', loglevel);
+
+    try {
+        // Parse openedge-project.json to get OE version before checking other config
         const projectJson = JSON.parse(fs.readFileSync(projectJsonPath, 'utf-8'));
         const oeVersion = projectJson.oeversion;
         
@@ -403,12 +411,29 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
             return;
         }
 
+        // Now check for missing configuration
+        if (!execName || !oeArgs) {
+            const missing = [];
+            if (!execName) missing.push('oeunit.exec');
+            if (!oeArgs) missing.push('oeunit.oeargs');
+            const errorMsg = `OEUnit server cannot start. Missing configuration: ${missing.join(', ')}`;
+            console.log('[OEUnit] Missing required configuration:', missing.join(', '));
+            serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
+            serverOutputChannel.show(true);
+            updateStatusBar('error');
+            vscode.window.showErrorMessage(errorMsg, 'Open Settings').then(selection => {
+                if (selection === 'Open Settings') {
+                    vscode.commands.executeCommand('workbench.action.openSettings', 'oeunit');
+                }
+            });
+            return;
+        }
+
         const dlcPath = runtime.path;
 
         // Build PROPATH
         const extensionPath = context.extensionPath;
         const propathEntries: string[] = [
-            oeunitHome,
             workspaceFolder,
             path.join(extensionPath, 'abl')
         ];
@@ -450,14 +475,12 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
         serverOutputChannel.appendLine(`Starting OEUnit Server (Extension v${extensionVersion})...`);
         serverOutputChannel.appendLine('='.repeat(80));
         serverOutputChannel.show();
-        serverManager = new OEUnitServerManager(serverOutputChannel, port);
+        serverManager = new OEUnitServerManager(serverOutputChannel, port, timeout);
 
         const started = await serverManager.startServer(
             dlcPath,
             execName,
             oeArgs,
-            oeunitHome,
-            oeunitRunner,
             workspaceFolder,
             propath,
             dbArgs,
@@ -502,7 +525,7 @@ async function startServer(runner: OEUnitTestRunner, context: vscode.ExtensionCo
     }
     
     updateStatusBar('starting');
-    await startPersistentServer(runner, context);
+    await startPersistentServer(runner, context, true);
 }
 
 async function stopServer(): Promise<void> {
@@ -529,7 +552,7 @@ async function restartServer(runner: OEUnitTestRunner, context: vscode.Extension
         await new Promise(resolve => setTimeout(resolve, 500));
     }
     
-    await startServer(runner, context);
+    await startPersistentServer(runner, context, true);
 }
 
 async function pingServer(): Promise<void> {
@@ -545,14 +568,14 @@ async function pingServer(): Promise<void> {
     
     try {
         console.log('[OEUnit] Pinging server...');
-        const response = await serverManager.sendRequest('PING');
+        const isHealthy = await serverManager.checkServerHealth();
         
-        if (response === 'PONG') {
+        if (isHealthy) {
             vscode.window.showInformationMessage('OEUnit server responded: PONG ✓');
             console.log('[OEUnit] Server ping successful: PONG');
         } else {
-            vscode.window.showWarningMessage(`OEUnit server unexpected response: ${response}`);
-            console.log('[OEUnit] Server ping unexpected response:', response);
+            vscode.window.showWarningMessage('OEUnit server did not respond to PING');
+            console.log('[OEUnit] Server ping failed');
         }
     } catch (error: any) {
         vscode.window.showErrorMessage(`OEUnit server ping failed: ${error.message}`);

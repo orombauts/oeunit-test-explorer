@@ -118,9 +118,27 @@ export class OEUnitTestProvider implements vscode.TreeDataProvider<TestItem> {
         }
     }
 
+    private isAbstractClass(content: string): boolean {
+        // Check if the class is declared as abstract
+        const lines = content.split('\n');
+        for (const line of lines) {
+            const trimmedLine = line.trim().toUpperCase();
+            // Match CLASS ... ABSTRACT pattern
+            if (trimmedLine.startsWith('CLASS ') && trimmedLine.includes('ABSTRACT')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private extractTestMethods(content: string, filePath: string): TestItem[] {
         const methods: TestItem[] = [];
         const lines = content.split('\n');
+        
+        // Skip abstract classes - they should not be tested
+        if (this.isAbstractClass(content)) {
+            return methods;
+        }
         
         // Look for methods with @Test annotation or methods starting with "test"
         let isTestAnnotated = false;
