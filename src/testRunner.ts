@@ -113,8 +113,9 @@ export class OEUnitTestRunner {
         }
     }
 
-    private async runTestDirect(filePath: string, run: vscode.TestRun, testItem: vscode.TestItem): Promise<void> {
-        this.outputChannel.appendLine('[Using direct execution - server not running]');
+    private async runTestDirectUNUSED(filePath: string, run: vscode.TestRun, testItem: vscode.TestItem): Promise<void> {
+        // NOTE: This method is not currently used. Tests require the server to be running.
+        this.outputChannel.appendLine('[Direct execution mode not implemented]');
 
         this.outputChannel.appendLine(`Starting test run...`);
         

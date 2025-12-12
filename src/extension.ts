@@ -479,7 +479,6 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
                     serverOutputChannel.show(true);
                 }
             });
-            console.log('[OEUnit] Server failed to start, tests will run directly');
         }
 
     } catch (error) {
