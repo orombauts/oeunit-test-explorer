@@ -8,7 +8,7 @@ A Visual Studio Code extension for running and exploring OpenEdge ABL unit tests
 - **Test Explorer Integration**: Browse all test files and methods in VS Code's native Testing view
 - **Run Tests**: Execute individual test files, test methods, or all tests
 - **Test Discovery**: Automatically discovers test files matching the configured pattern
-- **Real-time Results**: View test results with detailed output and XML parsing
+- **Real-time Results**: View test results with detailed output via JSON communication
 - **Server Management**: Commands to start, stop, restart, and ping the test server
 - **Status Bar**: Visual indicator showing current server status
 - **Auto-restart on Config Changes**: Server automatically restarts when settings change
@@ -29,38 +29,40 @@ Configure the extension in your workspace `.vscode/settings.json`:
 
 ```json
 {
-  "oeunit.home": "C:\\Workspace\\OEUnit",
-  "oeunit.runner": "Automation\\Pct\\RunTests.p",
   "oeunit.exec": "_progres.exe",
   "oeunit.oeargs": "-cpinternal utf-8 -cpstream utf-8 -cpcoll Basic -cpcase Basic",
-  "oeunit.outputDirectory": "${workspaceFolder}\\OEResults\\xml",
   "oeunit.testFilePattern": "**/test/**/*.cls",
   "oeunit.port": 5555,
-  "oeunit.loglevel": "error"
+  "oeunit.timeout": 60,
+  "oeunit.loglevel": "error",
+  "oeunit.autostart": true
 }
 ```
 
 ### Required Settings
 
-- **oeunit.home**: Path to your OEUnit installation directory
-- **oeunit.runner**: Path to OEUnit runner procedure (relative to oeunit.home)
 - **oeunit.exec**: OpenEdge executable name (default: `_progres.exe`)
-- **oeunit.oeargs**: OpenEdge startup arguments
+- **oeunit.oeargs**: OpenEdge startup arguments (can include INI file with PROPATH definition)
 
 ### Optional Settings
 
-- **oeunit.outputDirectory**: Directory where test results XML files will be saved (default: `${workspaceFolder}\\OEResults\\xml`)
 - **oeunit.testFilePattern**: Glob pattern to match test files (default: `**/test/**/*.cls`)
 - **oeunit.port**: Port number for the persistent test server (default: `5555`)
+- **oeunit.timeout**: Socket timeout in seconds for client connections and server reads (default: `60`)
 - **oeunit.loglevel**: Server log level - `info`, `warning`, or `error` (default: `error`)
 - **oeunit.workspaceFolder**: Workspace folder path to use for OEUnit server. If not specified, defaults to the first workspace folder. Useful in multi-root workspace scenarios
+- **oeunit.autostart**: Automatically start the OEUnit server when the extension activates (default: `true`)
 
 ### Project Configuration
 
-The extension also requires an `openedge-project.json` file in your workspace root with:
+The extension requires an `openedge-project.json` file in your workspace root with:
 - `oeversion`: OpenEdge version name (must match a runtime configured in `abl.configuration.runtimes`)
-- `buildPath`: Array of PROPATH entries
+- `buildPath`: Array of PROPATH entries for your project
 - `dbConnections`: Array of database connection configurations with optional aliases
+
+**IMPORTANT**: The OEUnit library must be available in the PROPATH. You can achieve this either by:
+1. Adding the OEUnit path to the `buildPath` in `openedge-project.json`, or
+2. Specifying an INI file in `oeunit.oeargs` that defines the PROPATH (e.g., `-ini C:\path\to\startup.ini`)
 
 ## Usage
 
@@ -136,18 +138,19 @@ The extension provides the following commands (accessible via Command Palette: `
 2. **Server starts automatically** using configured OpenEdge runtime
 3. **Server listens** on configured port for test requests
 4. **Tests discovered** by scanning for files matching the pattern
-5. **Running a test** sends request to server via TCP socket
-6. **Server executes** test and writes XML results
-7. **Extension parses** XML and updates test results in UI
+5. **Running a test** sends request to server via TCP socket with JSON message
+6. **Server executes** test and returns results via JSON response
+7. **Extension parses** JSON and updates test results in UI
 
 ## Troubleshooting
 
 ### Server Won't Start
 
 Check the **Developer Tools Console** (Help > Toggle Developer Tools) for detailed logs:
-- Verify all required settings are configured (`oeunit.home`, `oeunit.runner`, `oeunit.exec`, `oeunit.oeargs`)
-- Ensure `openedge-project.json` exists with valid `oeversion`
+- Verify all required settings are configured (`oeunit.exec`, `oeunit.oeargs`)
+- Ensure `openedge-project.json` exists with valid `oeversion` and OEUnit in the `buildPath`
 - Check that the OpenEdge runtime is configured in `abl.configuration.runtimes`
+- Verify OEUnit library is in PROPATH (either via `buildPath` or INI file)
 - Review the **OEUnit Server** output channel for startup errors
 
 ### Tests Not Appearing
@@ -165,10 +168,9 @@ Check the **Developer Tools Console** (Help > Toggle Developer Tools) for detail
 
 ### Configuration Issues
 
-- Use absolute paths for `oeunit.home`
-- Ensure `oeunit.runner` path is relative to `oeunit.home`
+- Ensure OEUnit library is in PROPATH (via `buildPath` in `openedge-project.json` or INI file)
 - Check that database connection strings in `openedge-project.json` are valid
-- Verify the output directory is writable
+- Verify `oeunit.oeargs` are properly formatted
 
 ### Port Conflicts
 
@@ -185,8 +187,7 @@ Press `F5` to launch the Extension Development Host.
 
 ## Limitations
 
-- ** Running individual test methods **
-Running a individual test method currently runs the whole unit test class.
+None currently known. Individual test methods can now be run independently.
 
 ## License
 

@@ -1,5 +1,18 @@
 # Change Log
 
+## [0.1.0] - 2025-12-16
+
+### Added
+- Support for running individual test methods (no longer runs entire test class)
+- Abstract test classes are now correctly skipped during test discovery
+
+### Changed
+- **BREAKING**: Refactored server communication to use JSON message protocol
+- **BREAKING**: Configuration properties removed: `oeunit.home`, `oeunit.runner`, `oeunit.outputDirectory`
+- Test results are now received directly via JSON communication instead of reading XML files
+- **IMPORTANT**: OEUnit library must now be available in the PROPATH (either via `openedge-project.json` buildPath or via PROPATH definition in the INI file specified in `oeunit.oeargs`)
+- Improved server status messages
+
 ## [0.0.7] - 2025-12-10
 
 ### Added
