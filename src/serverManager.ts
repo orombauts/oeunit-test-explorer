@@ -196,9 +196,9 @@ export class OEUnitServerManager {
         this.outputChannel.appendLine('[ServerManager] Stopping server...');
 
         try {
-            // Send shutdown command
-            const shutdownRequest: ShutdownRequest = { RequestType: 'SHUTDOWN' };
-            await this.sendJsonRequest(shutdownRequest);
+            // Send shutdown command without waiting for response
+            // The server will disconnect immediately after processing the shutdown request
+            await this.sendShutdownRequest();
             this.outputChannel.appendLine('[ServerManager] Shutdown command sent');
         } catch (error) {
             this.outputChannel.appendLine(`[ServerManager] Error sending shutdown: ${error}`);
@@ -239,6 +239,69 @@ export class OEUnitServerManager {
         }
 
         return response;
+    }
+
+    private async sendShutdownRequest(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const client = new net.Socket();
+            const shutdownRequest: ShutdownRequest = { RequestType: 'SHUTDOWN' };
+
+            // Use a short timeout for shutdown since we don't expect a response
+            const timeoutMs = 2000;
+            let shutdownSent = false;
+
+            client.connect(this.port, 'localhost', () => {
+                this.outputChannel.appendLine(`[ServerManager] Connected to server for shutdown`);
+                // Send JSON request
+                const requestJson = JSON.stringify(shutdownRequest);
+                const buffer = Buffer.from(requestJson, 'utf8');
+                client.write(buffer, (err) => {
+                    if (err) {
+                        this.outputChannel.appendLine(`[ServerManager] Write error: ${err.message}`);
+                        client.destroy();
+                        reject(err);
+                    } else {
+                        shutdownSent = true;
+                        this.outputChannel.appendLine(`[ServerManager] Shutdown request sent successfully`);
+                        // Don't wait for response, just close the connection
+                        client.destroy();
+                        resolve();
+                    }
+                });
+            });
+
+            client.on('error', (error: any) => {
+                // If shutdown was already sent, ignore errors (expected behavior)
+                if (shutdownSent) {
+                    this.outputChannel.appendLine(`[ServerManager] Connection error after shutdown (expected): ${error.code || error.message}`);
+                    client.destroy();
+                    resolve();
+                } else {
+                    this.outputChannel.appendLine(`[ServerManager] Socket error: ${error.message || error.code || error}`);
+                    client.destroy();
+                    reject(error);
+                }
+            });
+
+            client.on('close', () => {
+                if (shutdownSent) {
+                    resolve();
+                }
+            });
+
+            // Short timeout for shutdown
+            client.setTimeout(timeoutMs, () => {
+                if (shutdownSent) {
+                    this.outputChannel.appendLine(`[ServerManager] Shutdown timeout (request was sent)`);
+                    client.destroy();
+                    resolve();
+                } else {
+                    this.outputChannel.appendLine(`[ServerManager] Shutdown connection timeout`);
+                    client.destroy();
+                    reject(new Error('Shutdown connection timeout'));
+                }
+            });
+        });
     }
 
     private async sendJsonRequest<T = TestResponse>(request: ServerRequest): Promise<T> {

@@ -334,105 +334,51 @@ function extractTestMethods(content: string): TestMethod[] {
     return methods;
 }
 
-async function startPersistentServer(testRunner: OEUnitTestRunner, context: vscode.ExtensionContext, isManual: boolean = false) {
-    const config = vscode.workspace.getConfiguration('oeunit');
-    const autostart = config.get<boolean>('autostart', true);
-    
-    if (!autostart && !isManual) {
-        console.log('[OEUnit] Autostart disabled, skipping automatic server startup');
-        updateStatusBar('stopped');
-        return;
-    }
-    
-    const configuredWorkspace = config.get<string>('workspaceFolder');
-    
-    let workspaceFolder: string | undefined;
-    if (configuredWorkspace) {
-        workspaceFolder = configuredWorkspace;
-        console.log('[OEUnit] Using configured workspace folder:', workspaceFolder);
-    } else {
-        workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
-        console.log('[OEUnit] Using first workspace folder:', workspaceFolder);
-    }
+interface ProjectConfig {
+    oeVersion: string;
+    dlcPath: string;
+    propath: string;
+    dbArgs: string[];
+    dbAliasEnv: Record<string, string>;
+}
 
-    console.log('[OEUnit] Starting server initialization...');
-
-    if (!workspaceFolder) {
-        console.log('[OEUnit] No workspace folder, skipping server startup');
-        return;
-    }
-
-    // Check for openedge-project.json first
+async function parseOpenEdgeProjectJson(workspaceFolder: string, extensionPath: string): Promise<ProjectConfig> {
     const projectJsonPath = path.join(workspaceFolder, 'openedge-project.json');
+    
+    // Check if file exists
     if (!fs.existsSync(projectJsonPath)) {
-        const errorMsg = `OEUnit server cannot start. File not found: ${projectJsonPath}`;
-        console.log('[OEUnit] openedge-project.json not found, skipping server startup');
-        serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
-        serverOutputChannel.show(true);
-        updateStatusBar('error');
-        vscode.window.showErrorMessage(errorMsg);
-        return;
+        throw new Error(`openedge-project.json not found at: ${projectJsonPath}`);
     }
-
-    // Get all required configuration
-    const execName = config.get<string>('exec');
-    const oeArgs = config.get<string>('oeargs');
-    const port = config.get<number>('port') || 5555;
-    const timeout = config.get<number>('timeout') || 60;
-    const loglevel = config.get<string>('loglevel') || 'error';
-
-    console.log('[OEUnit] Configuration values:');
-    console.log('  - oeunit.exec:', execName || '(empty)');
-    console.log('  - oeunit.oeargs:', oeArgs ? `${oeArgs.substring(0, 50)}...` : '(empty)');
-    console.log('  - oeunit.port:', port);
-    console.log('  - oeunit.timeout:', timeout);
-    console.log('  - oeunit.loglevel:', loglevel);
 
     try {
-        // Parse openedge-project.json to get OE version before checking other config
-        const projectJson = JSON.parse(fs.readFileSync(projectJsonPath, 'utf-8'));
-        const oeVersion = projectJson.oeversion;
+        // Read and parse JSON file
+        const fileContent = fs.readFileSync(projectJsonPath, 'utf-8');
+        let projectJson: any;
         
+        try {
+            projectJson = JSON.parse(fileContent);
+        } catch (parseError) {
+            throw new Error(`Invalid JSON in openedge-project.json: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+        }
+
+        // Validate oeversion field
+        const oeVersion = projectJson.oeversion;
+        if (!oeVersion) {
+            throw new Error('openedge-project.json is missing required field: "oeversion"');
+        }
+
+        // Get DLC path from ABL configuration
         const ablConfig = vscode.workspace.getConfiguration('abl');
         const runtimes = ablConfig.get<any[]>('configuration.runtimes', []);
         const runtime = runtimes.find((rt: any) => rt.name === oeVersion);
         
         if (!runtime || !runtime.path) {
-            const errorMsg = `OEUnit server cannot start. DLC path not found for runtime '${oeVersion}'. Check abl.configuration.runtimes in settings.`;
-            console.log('[OEUnit] DLC path not found, skipping server startup');
-            serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
-            serverOutputChannel.show(true);
-            updateStatusBar('error');
-            vscode.window.showErrorMessage(errorMsg, 'Open Settings').then(selection => {
-                if (selection === 'Open Settings') {
-                    vscode.commands.executeCommand('workbench.action.openSettings', 'abl.configuration.runtimes');
-                }
-            });
-            return;
-        }
-
-        // Now check for missing configuration
-        if (!execName || !oeArgs) {
-            const missing = [];
-            if (!execName) missing.push('oeunit.exec');
-            if (!oeArgs) missing.push('oeunit.oeargs');
-            const errorMsg = `OEUnit server cannot start. Missing configuration: ${missing.join(', ')}`;
-            console.log('[OEUnit] Missing required configuration:', missing.join(', '));
-            serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
-            serverOutputChannel.show(true);
-            updateStatusBar('error');
-            vscode.window.showErrorMessage(errorMsg, 'Open Settings').then(selection => {
-                if (selection === 'Open Settings') {
-                    vscode.commands.executeCommand('workbench.action.openSettings', 'oeunit');
-                }
-            });
-            return;
+            throw new Error(`DLC path not found for runtime '${oeVersion}'. Check abl.configuration.runtimes in settings.`);
         }
 
         const dlcPath = runtime.path;
 
         // Build PROPATH
-        const extensionPath = context.extensionPath;
         const propathEntries: string[] = [
             workspaceFolder,
             path.join(extensionPath, 'abl')
@@ -469,6 +415,122 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
             }
         }
 
+        return {
+            oeVersion,
+            dlcPath,
+            propath,
+            dbArgs,
+            dbAliasEnv
+        };
+
+    } catch (error) {
+        // Re-throw with context that this is from openedge-project.json parsing
+        if (error instanceof Error) {
+            throw error;
+        }
+        throw new Error(`Error parsing openedge-project.json: ${String(error)}`);
+    }
+}
+
+async function startPersistentServer(testRunner: OEUnitTestRunner, context: vscode.ExtensionContext, isManual: boolean = false) {
+    const config = vscode.workspace.getConfiguration('oeunit');
+    const autostart = config.get<boolean>('autostart', true);
+    
+    if (!autostart && !isManual) {
+        console.log('[OEUnit] Autostart disabled, skipping automatic server startup');
+        updateStatusBar('stopped');
+        return;
+    }
+    
+    const configuredWorkspace = config.get<string>('workspaceFolder');
+    
+    let workspaceFolder: string | undefined;
+    if (configuredWorkspace) {
+        workspaceFolder = configuredWorkspace;
+        console.log('[OEUnit] Using configured workspace folder:', workspaceFolder);
+    } else {
+        workspaceFolder = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+        console.log('[OEUnit] Using first workspace folder:', workspaceFolder);
+    }
+
+    console.log('[OEUnit] Starting server initialization...');
+
+    if (!workspaceFolder) {
+        console.log('[OEUnit] No workspace folder, skipping server startup');
+        return;
+    }
+
+    // Get all required configuration
+    const execName = config.get<string>('exec');
+    const oeArgs = config.get<string>('oeargs');
+    const port = config.get<number>('port') || 5555;
+    const timeout = config.get<number>('timeout') || 60;
+    const loglevel = config.get<string>('loglevel') || 'error';
+
+    console.log('[OEUnit] Configuration values:');
+    console.log('  - oeunit.exec:', execName || '(empty)');
+    console.log('  - oeunit.oeargs:', oeArgs ? `${oeArgs.substring(0, 50)}...` : '(empty)');
+    console.log('  - oeunit.port:', port);
+    console.log('  - oeunit.timeout:', timeout);
+    console.log('  - oeunit.loglevel:', loglevel);
+
+    // Parse openedge-project.json with its own error handling
+    let projectConfig: ProjectConfig;
+    try {
+        projectConfig = await parseOpenEdgeProjectJson(workspaceFolder, context.extensionPath);
+        console.log('[OEUnit] Successfully parsed openedge-project.json');
+        console.log('  - OE Version:', projectConfig.oeVersion);
+        console.log('  - DLC Path:', projectConfig.dlcPath);
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error('[OEUnit] Error parsing openedge-project.json:', errorMsg);
+        serverOutputChannel.appendLine(`\n[ERROR] Failed to parse openedge-project.json: ${errorMsg}`);
+        serverOutputChannel.show(true);
+        updateStatusBar('error');
+        
+        // Provide specific action buttons based on error type
+        if (errorMsg.includes('not found')) {
+            vscode.window.showErrorMessage(`OEUnit server cannot start. ${errorMsg}`);
+        } else if (errorMsg.includes('DLC path not found')) {
+            vscode.window.showErrorMessage(`OEUnit server cannot start. ${errorMsg}`, 'Open Settings').then(selection => {
+                if (selection === 'Open Settings') {
+                    vscode.commands.executeCommand('workbench.action.openSettings', 'abl.configuration.runtimes');
+                }
+            });
+        } else if (errorMsg.includes('Invalid JSON')) {
+            vscode.window.showErrorMessage(`OEUnit server cannot start. ${errorMsg}`, 'Open File').then(selection => {
+                if (selection === 'Open File') {
+                    const projectJsonPath = path.join(workspaceFolder, 'openedge-project.json');
+                    vscode.workspace.openTextDocument(projectJsonPath).then(doc => {
+                        vscode.window.showTextDocument(doc);
+                    });
+                }
+            });
+        } else {
+            vscode.window.showErrorMessage(`OEUnit server cannot start. ${errorMsg}`);
+        }
+        return;
+    }
+
+    // Check for missing oeunit configuration
+    if (!execName || !oeArgs) {
+        const missing = [];
+        if (!execName) missing.push('oeunit.exec');
+        if (!oeArgs) missing.push('oeunit.oeargs');
+        const errorMsg = `OEUnit server cannot start. Missing configuration: ${missing.join(', ')}`;
+        console.log('[OEUnit] Missing required configuration:', missing.join(', '));
+        serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
+        serverOutputChannel.show(true);
+        updateStatusBar('error');
+        vscode.window.showErrorMessage(errorMsg, 'Open Settings').then(selection => {
+            if (selection === 'Open Settings') {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'oeunit');
+            }
+        });
+        return;
+    }
+
+    try {
         // Create and start server (reuse existing output channel)
         const extensionVersion = context.extension.packageJSON.version;
         serverOutputChannel.appendLine('\n' + '='.repeat(80));
@@ -478,13 +540,13 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
         serverManager = new OEUnitServerManager(serverOutputChannel, port, timeout);
 
         const started = await serverManager.startServer(
-            dlcPath,
+            projectConfig.dlcPath,
             execName,
             oeArgs,
             workspaceFolder,
-            propath,
-            dbArgs,
-            dbAliasEnv,
+            projectConfig.propath,
+            projectConfig.dbArgs,
+            projectConfig.dbAliasEnv,
             loglevel
         );        
         
