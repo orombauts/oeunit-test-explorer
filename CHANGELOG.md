@@ -1,5 +1,12 @@
 # Change Log
 
+## [0.1.2] - 2026-01-06
+
+### Improved
+- Added validation for JSON encoding compliance in openedge-project.json
+- Clear error messages when UTF-8 BOM or UTF-16 encoding is detected
+- Enforces RFC 8259 JSON specification compliance for encoding
+
 ## [0.1.1] - 2026-01-06
 
 ### Fixed

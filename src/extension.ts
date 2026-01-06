@@ -351,8 +351,25 @@ async function parseOpenEdgeProjectJson(workspaceFolder: string, extensionPath: 
     }
 
     try {
-        // Read and parse JSON file
-        const fileContent = fs.readFileSync(projectJsonPath, 'utf-8');
+        // Read the raw bytes first to check for encoding issues
+        const rawBytes = fs.readFileSync(projectJsonPath);
+        
+        // Check for UTF-16 BOM (not allowed - JSON must be UTF-8)
+        if (rawBytes.length >= 2) {
+            if ((rawBytes[0] === 0xFF && rawBytes[1] === 0xFE) || 
+                (rawBytes[0] === 0xFE && rawBytes[1] === 0xFF)) {
+                throw new Error('openedge-project.json is encoded as UTF-16. JSON files must be UTF-8 encoded per RFC 8259. Please save the file with UTF-8 encoding.');
+            }
+        }
+        
+        // Read as UTF-8 string
+        const fileContent = rawBytes.toString('utf-8');
+        
+        // Check for UTF-8 BOM (U+FEFF) which is not allowed in JSON per RFC 8259
+        if (fileContent.charCodeAt(0) === 0xFEFF) {
+            throw new Error('openedge-project.json contains a UTF-8 BOM (Byte Order Mark) which is not allowed in JSON files per RFC 8259. Please save the file without BOM encoding.');
+        }
+        
         let projectJson: any;
         
         try {

@@ -2,7 +2,7 @@
   "name": "abl-oeunit-test-explorer",
   "displayName": "OpenEdge ABL OEUnit Test Explorer",
   "description": "Run and explore OpenEdge ABL unit tests using OEUnit",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
