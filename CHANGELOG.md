@@ -1,5 +1,17 @@
 # Change Log
 
+## [0.1.1] - 2026-01-06
+
+### Fixed
+- Fixed server shutdown timeout error by implementing fire-and-forget shutdown request
+- Server shutdown no longer waits for response, preventing ETIMEDOUT errors
+
+### Improved
+- Isolated `openedge-project.json` parsing into dedicated function with specific error handling
+- Better error messages when `openedge-project.json` has issues (JSON syntax errors, missing fields, etc.)
+- Context-specific error dialogs with actionable buttons (Open File, Open Settings)
+- Clearer distinction between configuration parsing errors and server startup errors
+
 ## [0.1.0] - 2025-12-16
 
 ### Added
