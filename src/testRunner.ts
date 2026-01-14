@@ -1,6 +1,7 @@
 ﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import { OEUnitServerManager } from './serverManager';
+import { log } from './utils';
 
 // Import types from serverManager
 interface TestCaseSummary {
@@ -36,6 +37,10 @@ export class OEUnitTestRunner {
         this.outputChannel = vscode.window.createOutputChannel('OEUnit Test Runner');
     }
 
+    private log(message: string): void {
+        log(this.outputChannel, 'TestRunner', message);
+    }
+
     setExtensionVersion(version: string) {
         this.extensionVersion = version;
     }
@@ -54,12 +59,12 @@ export class OEUnitTestRunner {
 
         // Check if server is running
         const serverRunning = this.serverManager && this.serverManager.isServerRunning();
-        this.outputChannel.appendLine(`[TestRunner] Server manager exists: ${!!this.serverManager}, Server running: ${serverRunning}`);
+        this.log(`Server manager exists: ${!!this.serverManager}, Server running: ${serverRunning}`);
 
         if (!serverRunning) {
             // Server not running - fail the test
-            this.outputChannel.appendLine('[TestRunner] ERROR: Server is not running. Tests cannot be executed.');
-            this.outputChannel.appendLine('[TestRunner] Please start the server using the "OEUnit: Start Server" command before running tests.');
+            this.log('ERROR: Server is not running. Tests cannot be executed.');
+            this.log('Please start the server using the "OEUnit: Start Server" command before running tests.');
             
             const errorMessage = new vscode.TestMessage('OEUnit server is not running. Please start the server first.');
             const actions: vscode.MessageItem[] = [{ title: 'Start Server' }];
@@ -145,11 +150,11 @@ export class OEUnitTestRunner {
         } else {
             // Test item is a single test method (no children) - update it directly
             if (response.TestCases.length > 0) {
-                this.outputChannel.appendLine(`[TestRunner] Updating single test method: ${testItem.label}`);
+                this.log(`Updating single test method: ${testItem.label}`);
                 const testCase = response.TestCases[0];
                 this.updateTestStatus(testItem, testCase, run);
             } else {
-                this.outputChannel.appendLine(`[TestRunner] No test method children found for ${testItem.label}`);
+                this.log(`No test method children found for ${testItem.label}`);
             }
         }
     }

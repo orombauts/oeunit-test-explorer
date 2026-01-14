@@ -37,6 +37,9 @@ FUNCTION LogError RETURNS LOGICAL PRIVATE (LogMessage AS CHARACTER) FORWARD.
 
 /* --------------------------------------------------------------------- */
 
+LogInfo(SUBSTITUTE("OEUnit Test Server starting with:
+     &1":U, SESSION:PARAMETER)).
+
 /* Parse SESSION:PARAMETER */
 ASSIGN SessionParameters = SESSION:PARAMETER.
 

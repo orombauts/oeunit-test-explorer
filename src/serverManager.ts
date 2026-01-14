@@ -3,6 +3,7 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
+import { log } from './utils';
 
 // JSON message types
 interface TestRequest {
@@ -59,6 +60,10 @@ export class OEUnitServerManager {
         this.timeout = timeout;
     }
 
+    private log(message: string): void {
+        log(this.outputChannel, 'ServerManager', message);
+    }
+
     async startServer(
         dlcPath: string,
         execName: string,
@@ -70,21 +75,21 @@ export class OEUnitServerManager {
         loglevel: string
     ): Promise<boolean> {
         if (this.isRunning) {
-            this.outputChannel.appendLine('[ServerManager] Server already running');
+            this.log('Server already running');
             return true;
         }
 
-        this.outputChannel.appendLine('[ServerManager] Starting OEUnit persistent server...');
+        this.log('Starting OEUnit persistent server...');
 
         const progresPath = path.join(dlcPath, 'bin', execName);
         const extensionPath = path.join(__dirname, '..');
         const oeunitServerPath = path.join(extensionPath, 'abl', 'OEUnitServer.p');
 
         if (!fs.existsSync(oeunitServerPath)) {
-            this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
-            this.outputChannel.appendLine(`[ERROR] OEUnitServer.p not found`);
-            this.outputChannel.appendLine(`Expected location: ${oeunitServerPath}`);
-            this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
+            this.log(`\n${'='.repeat(80)}`);
+            this.log(`ERROR: OEUnitServer.p not found`);
+            this.log(`Expected location: ${oeunitServerPath}`);
+            this.log(`${'='.repeat(80)}\n`);
             return false;
         }
 
@@ -109,17 +114,17 @@ export class OEUnitServerManager {
         ];
 
         if (!fs.existsSync(progresPath)) {
-            this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
-            this.outputChannel.appendLine(`[ERROR] Progress executable not found`);
-            this.outputChannel.appendLine(`Expected location: ${progresPath}`);
-            this.outputChannel.appendLine(`Check your 'oeunit.exec' setting and DLC path configuration.`);
-            this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
+            this.log(`\n${'='.repeat(80)}`);
+            this.log(`ERROR: Progress executable not found`);
+            this.log(`Expected location: ${progresPath}`);
+            this.log(`Check your 'oeunit.exec' setting and DLC path configuration.`);
+            this.log(`${'='.repeat(80)}\n`);
             return false;
         }
 
-        this.outputChannel.appendLine(`[ServerManager] Command: "${progresPath}" ${args.join(' ')}`);
-        this.outputChannel.appendLine(`[ServerManager] Port: ${this.port}`);
-        this.outputChannel.appendLine(`[ServerManager] SESSION:PARAMETER: ${sessionParam}`);
+        this.log(`Command: "${progresPath}" ${args.join(' ')}`);
+        this.log(`Port: ${this.port}`);
+        this.log(`SESSION:PARAMETER: ${sessionParam}`);
 
         return new Promise((resolve) => {
             this.serverProcess = cp.spawn(progresPath, args, {
@@ -140,20 +145,20 @@ export class OEUnitServerManager {
             });
 
             this.serverProcess.on('error', (error) => {
-                this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
-                this.outputChannel.appendLine(`[ERROR] Server process error: ${error.message}`);
-                this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
+                this.log(`\n${'='.repeat(80)}`);
+                this.log(`ERROR: Server process error: ${error.message}`);
+                this.log(`${'='.repeat(80)}\n`);
                 this.isRunning = false;
             });
 
             this.serverProcess.on('exit', (code) => {
                 if (code !== 0 && code !== null) {
-                    this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
-                    this.outputChannel.appendLine(`[ERROR] Server exited with error code: ${code}`);
-                    this.outputChannel.appendLine(`Check the output above for error details.`);
-                    this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
+                    this.log(`\n${'='.repeat(80)}`);
+                    this.log(`ERROR: Server exited with error code: ${code}`);
+                    this.log(`Check the output above for error details.`);
+                    this.log(`${'='.repeat(80)}\n`);
                 } else {
-                    this.outputChannel.appendLine(`[ServerManager] Server exited with code: ${code}`);
+                    this.log(`Server exited with code: ${code}`);
                 }
                 this.isRunning = false;
                 this.serverProcess = null;
@@ -166,25 +171,25 @@ export class OEUnitServerManager {
                     connected = await this.checkServerHealth();
                     if (connected) break;
                     if (i < 4) {
-                        this.outputChannel.appendLine(`[ServerManager] PING failed, retry ${i + 1}/4...`);
+                        this.log(`PING failed, retry ${i + 1}/4...`);
                         await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                 }
 
                 if (connected) {
                     this.isRunning = true;
-                    this.outputChannel.appendLine('[ServerManager] Server started successfully and responding to PING');
+                    this.log('Server started successfully and responding to PING');
                     resolve(true);
                 } else {
-                    this.outputChannel.appendLine(`\n${'='.repeat(80)}`);
-                    this.outputChannel.appendLine('[ERROR] Server failed to respond to PING');
-                    this.outputChannel.appendLine('The server process may have started but is not responding.');
-                    this.outputChannel.appendLine('Check the output above for any error messages.');
-                    this.outputChannel.appendLine(`${'='.repeat(80)}\n`);
+                    this.log(`\n${'='.repeat(80)}`);
+                    this.log('ERROR: Server failed to respond to PING');
+                    this.log('The server process may have started but is not responding.');
+                    this.log('Check the output above for any error messages.');
+                    this.log(`${'='.repeat(80)}\n`);
                     this.stopServer();
                     resolve(false);
                 }
-            }, 2000);
+            }, 5000);
         });
     }
 
@@ -193,15 +198,15 @@ export class OEUnitServerManager {
             return;
         }
 
-        this.outputChannel.appendLine('[ServerManager] Stopping server...');
+        this.log('Stopping server...');
 
         try {
             // Send shutdown command without waiting for response
             // The server will disconnect immediately after processing the shutdown request
             await this.sendShutdownRequest();
-            this.outputChannel.appendLine('[ServerManager] Shutdown command sent');
+            this.log('Shutdown command sent');
         } catch (error) {
-            this.outputChannel.appendLine(`[ServerManager] Error sending shutdown: ${error}`);
+            this.log(`Error sending shutdown: ${error}`);
         }
 
         // Give it a moment to shutdown gracefully
@@ -210,7 +215,7 @@ export class OEUnitServerManager {
         // Force kill if still running
         if (this.serverProcess && !this.serverProcess.killed) {
             this.serverProcess.kill();
-            this.outputChannel.appendLine('[ServerManager] Server process killed');
+            this.log('Server process killed');
         }
 
         this.isRunning = false;
@@ -229,13 +234,13 @@ export class OEUnitServerManager {
             LogLevel: logLevel
         };
 
-        this.outputChannel.appendLine(`[ServerManager] Sending test request: ${JSON.stringify(request)}`);
+        this.log(`Sending test request: ${JSON.stringify(request)}`);
 
         const response = await this.sendJsonRequest<TestResponse>(request);
-        this.outputChannel.appendLine(`[ServerManager] Received response status: ${response.Status}`);
+        this.log(`Received response status: ${response.Status}`);
 
         if (response.Summary) {
-            this.outputChannel.appendLine(`[ServerManager] Tests: ${response.Summary.Total}, Failures: ${response.Summary.Failures}, Errors: ${response.Summary.Errors}, Skipped: ${response.Summary.Skipped}`);
+            this.log(`Tests: ${response.Summary.Total}, Failures: ${response.Summary.Failures}, Errors: ${response.Summary.Errors}, Skipped: ${response.Summary.Skipped}`);
         }
 
         return response;
@@ -251,18 +256,18 @@ export class OEUnitServerManager {
             let shutdownSent = false;
 
             client.connect(this.port, 'localhost', () => {
-                this.outputChannel.appendLine(`[ServerManager] Connected to server for shutdown`);
+                this.log(`Connected to server for shutdown`);
                 // Send JSON request
                 const requestJson = JSON.stringify(shutdownRequest);
                 const buffer = Buffer.from(requestJson, 'utf8');
                 client.write(buffer, (err) => {
                     if (err) {
-                        this.outputChannel.appendLine(`[ServerManager] Write error: ${err.message}`);
+                        this.log(`Write error: ${err.message}`);
                         client.destroy();
                         reject(err);
                     } else {
                         shutdownSent = true;
-                        this.outputChannel.appendLine(`[ServerManager] Shutdown request sent successfully`);
+                        this.log(`Shutdown request sent successfully`);
                         // Don't wait for response, just close the connection
                         client.destroy();
                         resolve();
@@ -273,11 +278,11 @@ export class OEUnitServerManager {
             client.on('error', (error: any) => {
                 // If shutdown was already sent, ignore errors (expected behavior)
                 if (shutdownSent) {
-                    this.outputChannel.appendLine(`[ServerManager] Connection error after shutdown (expected): ${error.code || error.message}`);
+                    this.log(`Connection error after shutdown (expected): ${error.code || error.message}`);
                     client.destroy();
                     resolve();
                 } else {
-                    this.outputChannel.appendLine(`[ServerManager] Socket error: ${error.message || error.code || error}`);
+                    this.log(`Socket error: ${error.message || error.code || error}`);
                     client.destroy();
                     reject(error);
                 }
@@ -292,11 +297,11 @@ export class OEUnitServerManager {
             // Short timeout for shutdown
             client.setTimeout(timeoutMs, () => {
                 if (shutdownSent) {
-                    this.outputChannel.appendLine(`[ServerManager] Shutdown timeout (request was sent)`);
+                    this.log(`Shutdown timeout (request was sent)`);
                     client.destroy();
                     resolve();
                 } else {
-                    this.outputChannel.appendLine(`[ServerManager] Shutdown connection timeout`);
+                    this.log(`Shutdown connection timeout`);
                     client.destroy();
                     reject(new Error('Shutdown connection timeout'));
                 }
@@ -310,31 +315,31 @@ export class OEUnitServerManager {
             let responseData = Buffer.alloc(0);
 
             client.connect(this.port, 'localhost', () => {
-                this.outputChannel.appendLine(`[ServerManager] Connected to server`);
+                this.log(`Connected to server`);
                 // Send JSON request
                 const requestJson = JSON.stringify(request);
                 const buffer = Buffer.from(requestJson, 'utf8');
                 client.write(buffer, (err) => {
                     if (err) {
-                        this.outputChannel.appendLine(`[ServerManager] Write error: ${err.message}`);
+                        this.log(`Write error: ${err.message}`);
                     } else {
-                        this.outputChannel.appendLine(`[ServerManager] Request sent, waiting for response...`);
+                        this.log(`Request sent, waiting for response...`);
                     }
                 });
             });
 
             client.on('data', (data) => {
                 responseData = Buffer.concat([responseData, data]);
-                this.outputChannel.appendLine(`[ServerManager] Received ${data.length} bytes`);
+                this.log(`Received ${data.length} bytes`);
             });
 
             client.on('end', () => {
-                this.outputChannel.appendLine(`[ServerManager] Connection ended`);
+                this.log(`Connection ended`);
                 client.destroy();
                 
                 try {
                     const responseText = responseData.toString('utf8');
-                    this.outputChannel.appendLine(`[ServerManager] Response JSON: ${responseText}`);
+                    this.log(`Response JSON: ${responseText}`);
                     const response = JSON.parse(responseText) as T;
                     resolve(response);
                 } catch (error) {
@@ -343,15 +348,15 @@ export class OEUnitServerManager {
             });
 
             client.on('error', (error: any) => {
-                this.outputChannel.appendLine(`[ServerManager] Socket error: ${error.message || error.code || error}`);
-                this.outputChannel.appendLine(`[ServerManager] Error details: ${JSON.stringify(error)}`);
+                this.log(`Socket error: ${error.message || error.code || error}`);
+                this.log(`Error details: ${JSON.stringify(error)}`);
                 client.destroy();
                 reject(error);
             });
 
             // Timeout after configured seconds
             client.setTimeout(this.timeout * 1000, () => {
-                this.outputChannel.appendLine(`[ServerManager] Request timeout`);
+                this.log(`Request timeout`);
                 client.destroy();
                 reject(new Error('Request timeout'));
             });
@@ -361,20 +366,20 @@ export class OEUnitServerManager {
     async checkServerHealth(): Promise<boolean> {
         try {
             // Send PING and wait for PONG response
-            this.outputChannel.appendLine(`[ServerManager] Sending PING to server on port ${this.port}...`);
+            this.log(`Sending PING to server on port ${this.port}...`);
             const pingRequest: PingRequest = { RequestType: 'PING' };
             const response = await this.sendJsonRequest<TestResponse>(pingRequest);
 
             if (response.Status === 'OK' && response.Reply === 'PONG') {
-                this.outputChannel.appendLine(`[ServerManager] Received PONG - server is healthy`);
+                this.log(`Received PONG - server is healthy`);
                 return true;
             } else {
-                this.outputChannel.appendLine(`[ServerManager] Unexpected response: ${JSON.stringify(response)}`);
+                this.log(`Unexpected response: ${JSON.stringify(response)}`);
                 return false;
             }
         } catch (error: any) {
             const errorMsg = error.message || error.code || 'Unknown error';
-            this.outputChannel.appendLine(`[ServerManager] Health check error: ${errorMsg}`);
+            this.log(`Health check error: ${errorMsg}`);
             return false;
         }
     }
