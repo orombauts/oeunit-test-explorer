@@ -21,7 +21,7 @@ Write-Host "[OK] npm found: $($npmPath.Source)" -ForegroundColor Green
 Write-Host ""
 
 # Navigate to extension directory
-$extensionPath = "C:\Workspace\VSCode\ADM_2_0\oeunit-test-explorer"
+$extensionPath = $PSScriptRoot
 Set-Location $extensionPath
 
 # Install dependencies

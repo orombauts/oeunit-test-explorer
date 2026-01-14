@@ -6,12 +6,20 @@
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${input:workspacePath}"
       ],
       "outFiles": [
         "${workspaceFolder}/out/**/*.js"
       ],
       "preLaunchTask": "${defaultBuildTask}"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "workspacePath",
+      "type": "promptString",
+      "description": "Work space file path (.code-workspace)"
     }
   ]
 }
