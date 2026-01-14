@@ -84,7 +84,7 @@
         },
         "oeunit.autostart": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Automatically start the OEUnit server when the extension activates"
         }
       }

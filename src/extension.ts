@@ -8,6 +8,7 @@ let serverManager: OEUnitServerManager | null = null;
 let testRunner: OEUnitTestRunner;
 let statusBarItem: vscode.StatusBarItem;
 let serverOutputChannel: vscode.OutputChannel;
+let configChangeTimeout: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('OEUnit Test Explorer extension is now active');
@@ -63,13 +64,22 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
     
-    // Watch for configuration changes
+    // Watch for configuration changes with debouncing
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
             if (e.affectsConfiguration('oeunit')) {
-                console.log('[OEUnit] Configuration changed, restarting server...');
-                vscode.window.showInformationMessage('OEUnit configuration changed, restarting server...');
-                await restartServer(testRunner, context);
+                // Clear existing timeout to debounce rapid changes
+                if (configChangeTimeout) {
+                    clearTimeout(configChangeTimeout);
+                }
+                
+                // Wait 5 seconds after the last change before restarting
+                configChangeTimeout = setTimeout(async () => {
+                    console.log('[OEUnit] Configuration changed, restarting server...');
+                    vscode.window.showInformationMessage('OEUnit configuration changed, restarting server...');
+                    await restartServer(testRunner, context);
+                    configChangeTimeout = undefined;
+                }, 5000);
             }
         })
     );
