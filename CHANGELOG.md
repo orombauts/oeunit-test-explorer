@@ -1,5 +1,23 @@
 # Change Log
 
+## [0.1.3] - 2026-01-14
+
+### Changed
+- Configuration change debouncing: Server now waits 5 seconds after last config change before restarting (prevents restart on every keystroke when typing port numbers or other settings)
+- Parameter order in OEUnitServer.p: Log level is now parsed first to enable proper logging during initialization
+- Autostart default changed to `false` (server won't start automatically on extension activation)
+- Increased initial server startup delay from 2 to 5 seconds before health check pings
+
+### Improved
+- Added timestamps to all ServerManager and TestRunner log messages (format: MM/DD/YYYY HH:MM:SS.mmm±HH:MM)
+- Centralized logging utilities in utils.ts for consistent timestamp formatting across modules
+- Better launch.json configuration with workspace path input prompt
+- Setup.ps1 now uses `$PSScriptRoot` instead of hardcoded path for better portability
+
+### Fixed
+- Removed hardcoded workspace path from setup.ps1
+- Launch.json no longer tracked with user-specific workspace paths (added to .gitignore)
+
 ## [0.1.2] - 2026-01-06
 
 ### Improved
