@@ -1,10 +1,12 @@
 # Change Log
 
+## [0.1.4] - 2026-01-14
+- Corrected this file
+
 ## [0.1.3] - 2026-01-14
 
 ### Changed
 - Configuration change debouncing: Server now waits 5 seconds after last config change before restarting (prevents restart on every keystroke when typing port numbers or other settings)
-- Parameter order in OEUnitServer.p: Log level is now parsed first to enable proper logging during initialization
 - Autostart default changed to `false` (server won't start automatically on extension activation)
 - Increased initial server startup delay from 2 to 5 seconds before health check pings
 
@@ -16,7 +18,6 @@
 
 ### Fixed
 - Removed hardcoded workspace path from setup.ps1
-- Launch.json no longer tracked with user-specific workspace paths (added to .gitignore)
 
 ## [0.1.2] - 2026-01-06
 
