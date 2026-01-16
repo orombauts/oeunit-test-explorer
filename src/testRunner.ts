@@ -114,10 +114,14 @@ export class OEUnitTestRunner {
                 await this.processJsonResults(response, run, testItem);
 
                 // Mark the test file as passed if there are no failures or errors
-                if (response.Summary.Failures === 0 && response.Summary.Errors === 0) {
-                    run.passed(testItem, response.Summary.DurationMs);
-                } else {
-                    run.failed(testItem, new vscode.TestMessage(`${response.Summary.Failures} test(s) failed, ${response.Summary.Errors} error(s)`));
+                // Only update status for items with children (test files), not leaf items (individual methods)
+                // to avoid overwriting detailed failure messages set in processJsonResults
+                if (testItem.children.size > 0) {
+                    if (response.Summary.Failures === 0 && response.Summary.Errors === 0) {
+                        run.passed(testItem, response.Summary.DurationMs);
+                    } else {
+                        run.failed(testItem, new vscode.TestMessage(`${response.Summary.Failures} test(s) failed, ${response.Summary.Errors} error(s)`));
+                    }
                 }
             } else {
                 const errorMsg = 'Unexpected response format from server';
@@ -149,12 +153,20 @@ export class OEUnitTestRunner {
             });
         } else {
             // Test item is a single test method (no children) - update it directly
+            // Find the matching test case by name (Case property should match testItem.label)
             if (response.TestCases.length > 0) {
                 this.log(`Updating single test method: ${testItem.label}`);
-                const testCase = response.TestCases[0];
-                this.updateTestStatus(testItem, testCase, run);
+                const testCase = response.TestCases.find(tc => tc.Case === testItem.label);
+                if (testCase) {
+                    this.updateTestStatus(testItem, testCase, run);
+                } else {
+                    this.log(`ERROR: Could not find test case matching "${testItem.label}" in response`);
+                    this.log(`Available test cases: ${response.TestCases.map(tc => tc.Case).join(', ')}`);
+                    run.failed(testItem, new vscode.TestMessage(`Test case "${testItem.label}" not found in server response`));
+                }
             } else {
-                this.log(`No test method children found for ${testItem.label}`);
+                this.log(`No test cases found in response for ${testItem.label}`);
+                run.failed(testItem, new vscode.TestMessage('No test cases in server response'));
             }
         }
     }
@@ -170,14 +182,7 @@ export class OEUnitTestRunner {
                 const failureMsg = testCase.Failure || 'Test failed';
                 const errorMsg = new vscode.TestMessage(failureMsg);
                 
-                // Add error stack if available
-                if (testCase.ErrorStack && testCase.ErrorStack.length > 0) {
-                    const stackTrace = testCase.ErrorStack.join('\n');
-                    this.outputChannel.appendLine(`   ${testCase.Case}: ${failureMsg} (${testCase.DurationMs}ms)`);
-                    this.outputChannel.appendLine(`    Stack trace:\n${stackTrace}`);
-                } else {
-                    this.outputChannel.appendLine(`   ${testCase.Case}: ${failureMsg} (${testCase.DurationMs}ms)`);
-                }
+                this.outputChannel.appendLine(`   -${testCase.Case}: ${failureMsg} (${testCase.DurationMs}ms)`);
                 
                 run.failed(testItem, errorMsg, testCase.DurationMs);
                 break;
