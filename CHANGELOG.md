@@ -1,5 +1,10 @@
 # Change Log
 
+## [0.1.5] - 2026-01-16
+
+### Fixed
+- Running individual test cases did not report failure. This has been corrected.
+
 ## [0.1.4] - 2026-01-14
 - Corrected this file
 
