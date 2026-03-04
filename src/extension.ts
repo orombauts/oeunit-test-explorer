@@ -23,11 +23,11 @@ export function activate(context: vscode.ExtensionContext) {
 
     testRunner = new OEUnitTestRunner();
     testRunner.setExtensionVersion(context.extension.packageJSON.version);
-    
+
     // Create output channel once and reuse it
     serverOutputChannel = vscode.window.createOutputChannel('OEUnit Server');
     context.subscriptions.push(serverOutputChannel);
-    
+
     // Create status bar item
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.command = 'oeunit.restartServer';
@@ -35,35 +35,35 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(statusBarItem);
     updateStatusBar('starting');
     statusBarItem.show();
-    
+
     // Initialize and start the persistent test server
     startPersistentServer(testRunner, context, false);
-    
+
     // Register commands
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.restartServer', async () => {
             await restartServer(testRunner, context);
         })
     );
-    
+
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.stopServer', async () => {
             await stopServer();
         })
     );
-    
+
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.startServer', async () => {
             await startServer(testRunner, context);
         })
     );
-    
+
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.pingServer', async () => {
             await pingServer();
         })
     );
-    
+
     // Watch for configuration changes with debouncing
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -72,7 +72,7 @@ export function activate(context: vscode.ExtensionContext) {
                 if (configChangeTimeout) {
                     clearTimeout(configChangeTimeout);
                 }
-                
+
                 // Wait 5 seconds after the last change before restarting
                 configChangeTimeout = setTimeout(async () => {
                     console.log('[OEUnit] Configuration changed, restarting server...');
@@ -86,19 +86,19 @@ export function activate(context: vscode.ExtensionContext) {
 
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.cls');
     context.subscriptions.push(watcher);
-    
+
     watcher.onDidChange(uri => {
         if (uri.path.includes('/test/')) {
             discoverTests(controller);
         }
     });
-    
+
     watcher.onDidCreate(uri => {
         if (uri.path.includes('/test/')) {
             discoverTests(controller);
         }
     });
-    
+
     watcher.onDidDelete(uri => {
         if (uri.path.includes('/test/')) {
             discoverTests(controller);
@@ -126,12 +126,12 @@ export function activate(context: vscode.ExtensionContext) {
             } else {
                 controller.items.forEach(test => collectTests(test, queue));
             }
-            
+
             console.log('[OEUnit] Queue has', queue.length, 'tests');
 
             for (const test of queue) {
                 console.log('[OEUnit] Processing test:', test.id);
-                
+
                 if (token.isCancellationRequested) {
                     run.skipped(test);
                     continue;
@@ -232,7 +232,7 @@ async function discoverTests(controller: vscode.TestController) {
 
 async function addTestFile(controller: vscode.TestController, fileUri: vscode.Uri, workspaceRoot: string) {
     const filePath = fileUri.fsPath;
-    
+
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
         const testMethods = extractTestMethods(content);
@@ -243,23 +243,23 @@ async function addTestFile(controller: vscode.TestController, fileUri: vscode.Ur
 
         const relativePath = path.relative(workspaceRoot, filePath);
         const pathParts = relativePath.split(path.sep);
-        
+
         let currentItems = controller.items;
         let currentPath = workspaceRoot;
-        
+
         for (let i = 0; i < pathParts.length - 1; i++) {
             const folderName = pathParts[i];
             currentPath = path.join(currentPath, folderName);
             const folderId = currentPath;
-            
+
             let folderItem = currentItems.get(folderId);
-            
+
             if (!folderItem) {
                 folderItem = controller.createTestItem(folderId, folderName);
                 folderItem.canResolveChildren = false;
                 currentItems.add(folderItem);
             }
-            
+
             currentItems = folderItem.children;
         }
 
@@ -270,12 +270,12 @@ async function addTestFile(controller: vscode.TestController, fileUri: vscode.Ur
         for (const method of testMethods) {
             const methodId = `${filePath}::${method.name}`;
             const methodItem = controller.createTestItem(methodId, method.name, fileUri);
-            
+
             methodItem.range = new vscode.Range(
                 new vscode.Position(method.line, 0),
                 new vscode.Position(method.line, 0)
             );
-            
+
             fileItem.children.add(methodItem);
         }
 
@@ -305,24 +305,24 @@ function isAbstractClass(content: string): boolean {
 function extractTestMethods(content: string): TestMethod[] {
     const methods: TestMethod[] = [];
     const lines = content.split('\n');
-    
+
     // Skip abstract classes - they should not be tested
     if (isAbstractClass(content)) {
         return methods;
     }
-    
+
     let isTestAnnotated = false;
-    
+
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        
+
         if (line.toLowerCase().includes('@test')) {
             isTestAnnotated = true;
             continue;
         }
-        
+
         const methodMatch = line.match(/METHOD\s+(?:PUBLIC|PRIVATE|PROTECTED)?\s+(?:VOID|[\w]+)\s+(test\w+)\s*\(/i);
-        
+
         if (methodMatch) {
             methods.push({
                 name: methodMatch[1],
@@ -340,7 +340,7 @@ function extractTestMethods(content: string): TestMethod[] {
             }
         }
     }
-    
+
     return methods;
 }
 
@@ -354,7 +354,7 @@ interface ProjectConfig {
 
 async function parseOpenEdgeProjectJson(workspaceFolder: string, extensionPath: string): Promise<ProjectConfig> {
     const projectJsonPath = path.join(workspaceFolder, 'openedge-project.json');
-    
+
     // Check if file exists
     if (!fs.existsSync(projectJsonPath)) {
         throw new Error(`openedge-project.json not found at: ${projectJsonPath}`);
@@ -363,25 +363,25 @@ async function parseOpenEdgeProjectJson(workspaceFolder: string, extensionPath: 
     try {
         // Read the raw bytes first to check for encoding issues
         const rawBytes = fs.readFileSync(projectJsonPath);
-        
+
         // Check for UTF-16 BOM (not allowed - JSON must be UTF-8)
         if (rawBytes.length >= 2) {
-            if ((rawBytes[0] === 0xFF && rawBytes[1] === 0xFE) || 
+            if ((rawBytes[0] === 0xFF && rawBytes[1] === 0xFE) ||
                 (rawBytes[0] === 0xFE && rawBytes[1] === 0xFF)) {
                 throw new Error('openedge-project.json is encoded as UTF-16. JSON files must be UTF-8 encoded per RFC 8259. Please save the file with UTF-8 encoding.');
             }
         }
-        
+
         // Read as UTF-8 string
         const fileContent = rawBytes.toString('utf-8');
-        
+
         // Check for UTF-8 BOM (U+FEFF) which is not allowed in JSON per RFC 8259
         if (fileContent.charCodeAt(0) === 0xFEFF) {
             throw new Error('openedge-project.json contains a UTF-8 BOM (Byte Order Mark) which is not allowed in JSON files per RFC 8259. Please save the file without BOM encoding.');
         }
-        
+
         let projectJson: any;
-        
+
         try {
             projectJson = JSON.parse(fileContent);
         } catch (parseError) {
@@ -398,7 +398,7 @@ async function parseOpenEdgeProjectJson(workspaceFolder: string, extensionPath: 
         const ablConfig = vscode.workspace.getConfiguration('abl');
         const runtimes = ablConfig.get<any[]>('configuration.runtimes', []);
         const runtime = runtimes.find((rt: any) => rt.name === oeVersion);
-        
+
         if (!runtime || !runtime.path) {
             throw new Error(`DLC path not found for runtime '${oeVersion}'. Check abl.configuration.runtimes in settings.`);
         }
@@ -414,8 +414,8 @@ async function parseOpenEdgeProjectJson(workspaceFolder: string, extensionPath: 
         if (projectJson.buildPath && Array.isArray(projectJson.buildPath)) {
             for (const entry of projectJson.buildPath) {
                 const entryPath = entry.path || entry;
-                const fullPath = path.isAbsolute(entryPath) 
-                    ? entryPath 
+                const fullPath = path.isAbsolute(entryPath)
+                    ? entryPath
                     : path.join(workspaceFolder, entryPath);
                 propathEntries.push(fullPath);
             }
@@ -462,15 +462,15 @@ async function parseOpenEdgeProjectJson(workspaceFolder: string, extensionPath: 
 async function startPersistentServer(testRunner: OEUnitTestRunner, context: vscode.ExtensionContext, isManual: boolean = false) {
     const config = vscode.workspace.getConfiguration('oeunit');
     const autostart = config.get<boolean>('autostart', true);
-    
+
     if (!autostart && !isManual) {
         console.log('[OEUnit] Autostart disabled, skipping automatic server startup');
         updateStatusBar('stopped');
         return;
     }
-    
+
     const configuredWorkspace = config.get<string>('workspaceFolder');
-    
+
     let workspaceFolder: string | undefined;
     if (configuredWorkspace) {
         workspaceFolder = configuredWorkspace;
@@ -493,6 +493,7 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
     const port = config.get<number>('port') || 5555;
     const timeout = config.get<number>('timeout') || 60;
     const loglevel = config.get<string>('loglevel') || 'error';
+    const customEnvVars = config.get<Record<string, string>>('environmentVariables', {});
 
     console.log('[OEUnit] Configuration values:');
     console.log('  - oeunit.exec:', execName || '(empty)');
@@ -514,7 +515,7 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
         serverOutputChannel.appendLine(`\n[ERROR] Failed to parse openedge-project.json: ${errorMsg}`);
         serverOutputChannel.show(true);
         updateStatusBar('error');
-        
+
         // Provide specific action buttons based on error type
         if (errorMsg.includes('not found')) {
             vscode.window.showErrorMessage(`OEUnit server cannot start. ${errorMsg}`);
@@ -574,9 +575,10 @@ async function startPersistentServer(testRunner: OEUnitTestRunner, context: vsco
             projectConfig.propath,
             projectConfig.dbArgs,
             projectConfig.dbAliasEnv,
-            loglevel
-        );        
-        
+            loglevel,
+            customEnvVars
+        );
+
         if (started) {
             testRunner.setServerManager(serverManager);
             updateStatusBar('running');
@@ -612,7 +614,7 @@ async function startServer(runner: OEUnitTestRunner, context: vscode.ExtensionCo
         vscode.window.showInformationMessage('OEUnit server is already running');
         return;
     }
-    
+
     updateStatusBar('starting');
     await startPersistentServer(runner, context, true);
 }
@@ -623,7 +625,7 @@ async function stopServer(): Promise<void> {
         updateStatusBar('stopped');
         return;
     }
-    
+
     updateStatusBar('stopping');
     await serverManager.stopServer();
     testRunner.setServerManager(null);
@@ -634,13 +636,13 @@ async function stopServer(): Promise<void> {
 
 async function restartServer(runner: OEUnitTestRunner, context: vscode.ExtensionContext): Promise<void> {
     console.log('[OEUnit] Restarting server...');
-    
+
     if (serverManager && serverManager.isServerRunning()) {
         await stopServer();
         // Wait a moment before restarting
         await new Promise(resolve => setTimeout(resolve, 500));
     }
-    
+
     await startPersistentServer(runner, context, true);
 }
 
@@ -649,16 +651,16 @@ async function pingServer(): Promise<void> {
         vscode.window.showWarningMessage('OEUnit server manager not initialized');
         return;
     }
-    
+
     if (!serverManager.isServerRunning()) {
         vscode.window.showWarningMessage('OEUnit server is not running');
         return;
     }
-    
+
     try {
         console.log('[OEUnit] Pinging server...');
         const isHealthy = await serverManager.checkServerHealth();
-        
+
         if (isHealthy) {
             vscode.window.showInformationMessage('OEUnit server responded: PONG ✓');
             console.log('[OEUnit] Server ping successful: PONG');

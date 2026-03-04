@@ -1,5 +1,12 @@
 # Change Log
 
+## [0.1.6] - 2026-03-04
+
+### Added
+- Support for custom environment variables via `oeunit.environmentVariables` configuration
+- Environment variables can be set when spawning the Progress executable
+- Custom environment variables can override DLC and PROPATH if needed
+
 ## [0.1.5] - 2026-01-16
 
 ### Fixed
@@ -59,7 +66,7 @@
 ## [0.0.7] - 2025-12-10
 
 ### Added
-Support for test methods annotated with Ignore.  
+Support for test methods annotated with Ignore.
 Update readme file with limitation section:
 - Running a individual test method currently runs the whole unit test class.
 

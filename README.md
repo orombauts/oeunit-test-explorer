@@ -52,6 +52,7 @@ Configure the extension in your workspace `.vscode/settings.json`:
 - **oeunit.loglevel**: Server log level - `info`, `warning`, or `error` (default: `error`)
 - **oeunit.workspaceFolder**: Workspace folder path to use for OEUnit server. If not specified, defaults to the first workspace folder. Useful in multi-root workspace scenarios
 - **oeunit.autostart**: Automatically start the OEUnit server when the extension activates (default: `true`)
+- **oeunit.environmentVariables**: Object containing custom environment variables to set when starting the Progress executable (default: `{}`). These variables can override DLC and PROPATH if needed. Example: `{"WRKDIR": "C:\\temp", "HTTPS_PROXY": "http://proxy:8080"}`
 
 ### Project Configuration
 
@@ -83,16 +84,16 @@ The extension discovers test methods by looking for:
 Example test class:
 ```openedge
 CLASS TestExample:
-    
+
     @Test.
     METHOD PUBLIC VOID testSomething():
         Assert:Equals(1, 1).
     END METHOD.
-    
+
     METHOD PUBLIC VOID testAnotherThing():
         Assert:IsTrue(TRUE).
     END METHOD.
-    
+
 END CLASS.
 ```
 

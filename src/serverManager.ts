@@ -72,7 +72,8 @@ export class OEUnitServerManager {
         propath: string,
         dbArgs: string[],
         dbAliasEnv: Record<string, string>,
-        loglevel: string
+        loglevel: string,
+        customEnvVars: Record<string, string> = {}
     ): Promise<boolean> {
         if (this.isRunning) {
             this.log('Server already running');
@@ -132,7 +133,8 @@ export class OEUnitServerManager {
                 env: {
                     ...process.env,
                     DLC: dlcPath,
-                    PROPATH: propath
+                    PROPATH: propath,
+                    ...customEnvVars
                 }
             });
 
@@ -336,7 +338,7 @@ export class OEUnitServerManager {
             client.on('end', () => {
                 this.log(`Connection ended`);
                 client.destroy();
-                
+
                 try {
                     const responseText = responseData.toString('utf8');
                     this.log(`Response JSON: ${responseText}`);

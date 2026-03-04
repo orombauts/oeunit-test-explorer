@@ -2,7 +2,7 @@
   "name": "abl-oeunit-test-explorer",
   "displayName": "OpenEdge ABL OEUnit Test Explorer",
   "description": "Run and explore OpenEdge ABL unit tests using OEUnit",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
@@ -86,6 +86,14 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically start the OEUnit server when the extension activates"
+        },
+        "oeunit.environmentVariables": {
+          "type": "object",
+          "default": {},
+          "description": "Environment variables to set when starting the Progress executable. These can override DLC and PROPATH if needed.",
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     }
