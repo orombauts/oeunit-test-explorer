@@ -1,6 +1,12 @@
+/**
+ * Legacy TreeDataProvider-based test view (vscode.TreeDataProvider).
+ * Discovers and displays OEUnit test files and methods in the Explorer tree.
+ * Parsing is delegated to classParser.
+ */
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { isAbstractClass, extractAllTestMethods } from './classParser';
 
 export interface TestItem {
     type: 'file' | 'method';
@@ -94,98 +100,53 @@ export class OEUnitTestProvider implements vscode.TreeDataProvider<TestItem> {
         }
 
         for (const folder of workspaceFolders) {
-            const files = await vscode.workspace.findFiles(
+            // Single findFiles call: build the class-file map from all .cls files
+            const allCls = await vscode.workspace.findFiles(
+                new vscode.RelativePattern(folder, '**/*.cls'),
+                '**/node_modules/**'
+            );
+
+            const classFileMap = new Map<string, string>();
+            for (const f of allCls) {
+                classFileMap.set(f.fsPath.replace(/\\/g, '/').toLowerCase(), f.fsPath);
+            }
+
+            // Derive matching test files from the configured pattern
+            const testFiles = await vscode.workspace.findFiles(
                 new vscode.RelativePattern(folder, testPattern),
                 '**/node_modules/**'
             );
 
-            for (const file of files) {
-                await this.parseTestFile(file.fsPath);
+            for (const file of testFiles) {
+                this.parseTestFile(file.fsPath, classFileMap);
             }
         }
     }
 
-    private async parseTestFile(filePath: string): Promise<void> {
+    private parseTestFile(filePath: string, classFileMap: Map<string, string>): void {
         try {
             const content = fs.readFileSync(filePath, 'utf-8');
-            const testMethods = this.extractTestMethods(content, filePath);
-            
-            if (testMethods.length > 0) {
-                this.testFiles.set(filePath, testMethods);
+
+            if (isAbstractClass(content)) {
+                return;
+            }
+
+            const parsed = extractAllTestMethods(content, vscode.Uri.file(filePath), classFileMap);
+
+            if (parsed.length > 0) {
+                const testItems = parsed.map(m => ({
+                    type: 'method' as const,
+                    label: m.name,
+                    filePath: m.sourceUri?.fsPath ?? filePath,
+                    methodName: m.name,
+                    status: 'pending' as const,
+                    line: m.line
+                }));
+                this.testFiles.set(filePath, testItems);
             }
         } catch (error) {
             console.error(`Error parsing test file ${filePath}:`, error);
         }
-    }
-
-    private isAbstractClass(content: string): boolean {
-        // Check if the class is declared as abstract
-        const lines = content.split('\n');
-        for (const line of lines) {
-            const trimmedLine = line.trim().toUpperCase();
-            // Match CLASS ... ABSTRACT pattern
-            if (trimmedLine.startsWith('CLASS ') && trimmedLine.includes('ABSTRACT')) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private extractTestMethods(content: string, filePath: string): TestItem[] {
-        const methods: TestItem[] = [];
-        const lines = content.split('\n');
-        
-        // Skip abstract classes - they should not be tested
-        if (this.isAbstractClass(content)) {
-            return methods;
-        }
-        
-        // Look for methods with @Test annotation or methods starting with "test"
-        let isTestAnnotated = false;
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            
-            // Check for @Test annotation
-            if (line.toLowerCase().includes('@test')) {
-                isTestAnnotated = true;
-                continue;
-            }
-            
-            // Match method definitions
-            // Pattern: METHOD PUBLIC VOID TestMethodName():
-            const methodMatch = line.match(/METHOD\s+(?:PUBLIC|PRIVATE|PROTECTED)?\s+(?:VOID|[\w]+)\s+(test\w+)\s*\(/i);
-            
-            if (methodMatch) {
-                const methodName = methodMatch[1];
-                methods.push({
-                    type: 'method',
-                    label: methodName,
-                    filePath: filePath,
-                    methodName: methodName,
-                    status: 'pending',
-                    line: i
-                });
-                isTestAnnotated = false;
-            } else if (isTestAnnotated) {
-                // If we had @Test but didn't match method pattern, try another pattern
-                const altMethodMatch = line.match(/METHOD\s+(?:PUBLIC|PRIVATE|PROTECTED)?\s+(?:VOID|[\w]+)\s+([\w]+)\s*\(/i);
-                if (altMethodMatch) {
-                    const methodName = altMethodMatch[1];
-                    methods.push({
-                        type: 'method',
-                        label: methodName,
-                        filePath: filePath,
-                        methodName: methodName,
-                        status: 'pending',
-                        line: i
-                    });
-                    isTestAnnotated = false;
-                }
-            }
-        }
-        
-        return methods;
     }
 
     private getTestCount(element: TestItem): string {
