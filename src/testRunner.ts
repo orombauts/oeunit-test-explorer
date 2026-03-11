@@ -86,7 +86,7 @@ export class OEUnitTestRunner {
                 await vscode.commands.executeCommand('oeunit.startServer');
 
                 // Re-check after startup attempt
-                const serverNowRunning = this.serverManager && this.serverManager.isServerRunning();
+                const serverNowRunning = this.serverManagers.get(projectId)?.isServerRunning() ?? false;
                 if (!serverNowRunning) {
                     const errorMessage = new vscode.TestMessage('OEUnit server failed to start. Check OEUnit Server output for details.');
                     if (testItem.children.size > 0) {
@@ -132,7 +132,9 @@ export class OEUnitTestRunner {
     ): Promise<void> {
         const config = vscode.workspace.getConfiguration('oeunit');
         const projectOverrides = config.get<Record<string, any>>('projects', {});
-        const override = projectOverrides?.[projectId];
+        // Case-insensitive key lookup (Windows paths are case-insensitive)
+        const overrideKey = Object.keys(projectOverrides).find(k => k.toLowerCase() === projectId.toLowerCase());
+        const override = overrideKey ? projectOverrides[overrideKey] : undefined;
         const logLevel = override?.loglevel ?? config.get<string>('loglevel') ?? 'info';
 
         try {

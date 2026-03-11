@@ -20,6 +20,9 @@ export interface ProjectConfig {
 
 let serverManager: OEUnitServerManager | null = null;
 let serverEverStarted: boolean = false;
+// singleProjectId tracks the workspace folder path used as the project key
+// in OEUnitTestRunner's serverManagers map (single-project mode only).
+let singleProjectId: string = '';
 let statusBarItem: vscode.StatusBarItem;
 let serverOutputChannel: vscode.OutputChannel;
 let configChangeTimeout: NodeJS.Timeout | undefined;
@@ -170,6 +173,7 @@ export async function startPersistentServer(
         console.log('[OEUnit] No workspace folder, skipping server startup');
         return;
     }
+    singleProjectId = workspaceFolder;
 
     const execName = config.get<string>('exec');
     const oeArgs = config.get<string>('oeargs');
@@ -259,7 +263,7 @@ export async function startPersistentServer(
         );
 
         if (started) {
-            testRunner.setServerManager(serverManager);
+            testRunner.setServerManager(singleProjectId, serverManager);
             serverEverStarted = true;
             updateStatusBar('running');
             vscode.window.showInformationMessage('OEUnit persistent server started successfully');
@@ -301,7 +305,7 @@ export async function stopServer(runner: OEUnitTestRunner): Promise<void> {
     }
     updateStatusBar('stopping');
     await serverManager.stopServer();
-    runner.setServerManager(null);
+    runner.setServerManager(singleProjectId, null);
     serverManager = null;
     updateStatusBar('stopped');
     vscode.window.showInformationMessage('OEUnit server stopped');
@@ -315,7 +319,7 @@ export function killServer(runner: OEUnitTestRunner): void {
     }
     updateStatusBar('stopping');
     serverManager.killServer();
-    runner.setServerManager(null);
+    runner.setServerManager(singleProjectId, null);
     serverManager = null;
     updateStatusBar('stopped');
     vscode.window.showInformationMessage('OEUnit server process killed');

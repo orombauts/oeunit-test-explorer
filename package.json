@@ -20,6 +20,9 @@
     "workspaceContains:**/*.p"
   ],
   "main": "./out/extension.js",
+  "extensionOptionalDependencies": [
+    "RiversideSoftware.openedge-abl-lsp"
+  ],
   "contributes": {
     "commands": [
       {
@@ -41,6 +44,18 @@
       {
         "command": "oeunit.pingServer",
         "title": "OEUnit: Ping Server"
+      },
+      {
+        "command": "oeunit.startAllServers",
+        "title": "OEUnit: Start All Servers (Experimental)"
+      },
+      {
+        "command": "oeunit.stopAllServers",
+        "title": "OEUnit: Stop All Servers (Experimental)"
+      },
+      {
+        "command": "oeunit.restartAllServers",
+        "title": "OEUnit: Restart All Servers (Experimental)"
       }
     ],
     "configuration": {
@@ -83,6 +98,7 @@
         },
         "oeunit.workspaceFolder": {
           "type": "string",
+          "scope": "resource",
           "default": "",
           "description": "Workspace folder path to use for OEUnit server (defaults to first workspace folder if not specified)"
         },
@@ -98,6 +114,26 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "oeunit.multiProjectMode": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**[Experimental]** Enable multi-project workspace support. When enabled, the extension scans all `openedge-project.json` files in the workspace, starts a dedicated OEUnit server per project (on separate ports), and maps test items to their owning project. Requires a window reload to take full effect."
+        },
+        "oeunit.portBase": {
+          "type": "number",
+          "default": 5555,
+          "description": "Base port used when multi-project mode allocates dedicated server ports"
+        },
+        "oeunit.portStep": {
+          "type": "number",
+          "default": 10,
+          "description": "Port increment applied between multi-project OEUnit servers"
+        },
+        "oeunit.projects": {
+          "type": "object",
+          "default": {},
+          "description": "Per-project overrides keyed by project identifier (advanced)"
         }
       }
     }

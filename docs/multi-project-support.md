@@ -89,36 +89,36 @@ This document captures the plan to evolve the OEUnit Test Explorer extension fro
 ## 6. Implementation Checklist
 
 ### 6.1 Foundational Work
-- [ ] Create `ProjectDiscovery` service with caching, configuration change listeners, and helper methods.
-- [ ] Define `ProjectContext` interface and ensure it contains resolved paths and runtime handles.
-- [ ] Integrate discovery into `activate`, running prior to test discovery / server autostart.
-- [ ] Detect and activate the Riverside ABL extension (`RiversideSoftware.openedge-abl-lsp`), reusing `getProjectInfo`/`getFileInfo` when present and falling back gracefully otherwise.
+- [x] Create `ProjectDiscovery` service with caching, configuration change listeners, and helper methods.
+- [x] Define `ProjectContext` interface and ensure it contains resolved paths and runtime handles.
+- [x] Integrate discovery into `activate`, running prior to test discovery / server autostart.
+- [ ] Detect and activate the Riverside ABL extension (`RiversideSoftware.openedge-abl-lsp`), reusing `getProjectInfo`/`getFileInfo` when present and falling back gracefully otherwise. *(Deferred — declared as optional dependency only)*
 
 ### 6.2 Server Lifecycle
-- [ ] Refactor `startPersistentServer` to accept a `ProjectContext` and return the created manager.
-- [ ] Replace global globals (`serverManager`, `statusBarItem`) with per-project structures.
-- [ ] Introduce `OEUnitServerRegistry` (or similar) responsible for managing the map of managers.
-- [ ] Update `restart`, `stop`, `start`, and `ping` commands to target a selected project or all.
-- [ ] Ensure server output channels are unique or clearly tagged per project (append project name/path).
+- [x] Refactor `startPersistentServer` to accept a `ProjectContext` and return the created manager.
+- [x] Replace global globals (`serverManager`, `statusBarItem`) with per-project structures.
+- [x] Introduce `OEUnitServerRegistry` (or similar) responsible for managing the map of managers. *(Implemented as `serverManagers` Map + helpers in `extension.ts`)*
+- [x] Update `restart`, `stop`, `start`, and `ping` commands to target a selected project or all.
+- [ ] Ensure server output channels are unique or clearly tagged per project (append project name/path). *(Deferred — shared channel with dividers)*
 
 ### 6.3 Test Discovery & Execution
-- [ ] Update `discoverTests` to request project contexts and skip files lacking a project root.
-- [ ] Store project association on each `TestItem` (using `WeakMap` or encoded IDs).
-- [ ] Modify `collectTests` and run loop to carry project metadata to execution.
-- [ ] Adjust `OEUnitTestRunner.runTestFile` to resolve server via project association and to lazily autostart if necessary.
-- [ ] Handle errors gracefully when project context is missing or server start fails.
+- [x] Update `discoverTests` to request project contexts and skip files lacking a project root.
+- [x] Store project association on each `TestItem` (using `WeakMap` or encoded IDs). *(Implemented as `testItemProjects` Map with parent-chain lookup)*
+- [x] Modify `collectTests` and run loop to carry project metadata to execution.
+- [x] Adjust `OEUnitTestRunner.runTestFile` to resolve server via project association and to lazily autostart if necessary.
+- [x] Handle errors gracefully when project context is missing or server start fails.
 
 ### 6.4 Configuration Handling
-- [ ] Extend settings schema (`package.json`) for new keys (`portBase`, `portStep`, `projects`).
-- [ ] Add `extensionDependencies` or `extensionOptionalDependencies` entry for `RiversideSoftware.openedge-abl-lsp` and document the requirement for advanced multi-project features.
-- [ ] Introduce `oeunit.multiProjectMode` (default `false`) to guard new functionality and ensure legacy behavior remains untouched when the toggle is off.
-- [ ] Update README and changelog to describe new configuration.
-- [ ] Ensure configuration change listener compares old/new contexts and restarts impacted servers only.
+- [x] Extend settings schema (`package.json`) for new keys (`portBase`, `portStep`, `projects`).
+- [x] Add `extensionDependencies` or `extensionOptionalDependencies` entry for `RiversideSoftware.openedge-abl-lsp`.
+- [x] Introduce `oeunit.multiProjectMode` (default `false`) to guard new functionality.
+- [x] Update README and changelog to describe new configuration.
+- [x] Ensure configuration change listener compares old/new contexts and restarts impacted servers only.
 
 ### 6.5 Status Bar & UI
-- [ ] Decide on status bar UX; implement multi-project-friendly display.
-- [ ] Provide quick navigation command if multiple status items are created.
-- [ ] Verify commands remain discoverable in Command Palette with sensible names/descriptions.
+- [x] Decide on status bar UX; implement multi-project-friendly display. *(Aggregate `N/M running` when >1 project)*
+- [ ] Provide quick navigation command if multiple status items are created. *(Deferred)*
+- [x] Verify commands remain discoverable in Command Palette with sensible names/descriptions.
 
 ### 6.6 Telemetry / Logging
 - [ ] Enhance logging to include project identifiers for easier debugging.
@@ -141,6 +141,9 @@ This document captures the plan to evolve the OEUnit Test Explorer extension fro
    - Disable `oeunit.multiProjectMode` and confirm the legacy single-server flow still operates correctly
 
 ### 6.8 Documentation & Migration
+- [x] Created `docs/multi-project-implementation-notes.md` with architectural decisions, bugs fixed, and deviations from plan.
+- [x] Updated CHANGELOG.md with `[Unreleased]` release notes.
+- [x] Updated this checklist to reflect actual implementation state.
 
 ## 7. Open Questions / Decisions Needed
 - Should project contexts inherit from parents or treat nested `openedge-project.json` files as separate projects?

@@ -27,24 +27,22 @@ export class ProjectDiscovery {
             const configured = config.get<string>('workspaceFolder');
             const folder = this.resolveWorkspaceFolder(configured, workspaceFolders);
             if (folder) {
-                nextContexts.push(this.buildContextForFolder(folder));
+                const projectPath = path.join(folder.uri.fsPath, 'openedge-project.json');
+                const projectFile = fs.existsSync(projectPath) ? vscode.Uri.file(projectPath) : null;
+                nextContexts.push(this.createContext(folder.uri.fsPath, folder.uri, folder, projectFile));
             }
         } else {
-            const projectFiles = await vscode.workspace.findFiles('**/openedge-project.json', '**/node_modules/**');
-            for (const file of projectFiles) {
-                const workspaceFolder = vscode.workspace.getWorkspaceFolder(file);
-                if (!workspaceFolder) {
-                    continue;
-                }
-                const rootUri = vscode.Uri.file(path.dirname(file.fsPath));
-                const id = rootUri.fsPath;
-                nextContexts.push(this.createContext(id, rootUri, workspaceFolder, file));
-            }
-
-            if (nextContexts.length === 0 && workspaceFolders.length > 0) {
-                // Fallback to workspace folders to avoid empty context list in multi-project mode
-                for (const folder of workspaceFolders) {
-                    nextContexts.push(this.buildContextForFolder(folder));
+            // In multi-project mode, honour exactly the workspace folders defined
+            // in the .code-workspace file — one project context per folder that
+            // has an openedge-project.json at its root.  Recursive findFiles is
+            // intentionally avoided to prevent sub-directories (or a Root folder
+            // that physically contains other named workspace folders) from
+            // generating unexpected extra contexts.
+            for (const folder of workspaceFolders) {
+                const projectPath = path.join(folder.uri.fsPath, 'openedge-project.json');
+                if (fs.existsSync(projectPath)) {
+                    const projectFile = vscode.Uri.file(projectPath);
+                    nextContexts.push(this.createContext(folder.uri.fsPath, folder.uri, folder, projectFile));
                 }
             }
         }
@@ -81,19 +79,12 @@ export class ProjectDiscovery {
         return folders[0];
     }
 
-    private buildContextForFolder(folder: vscode.WorkspaceFolder): ProjectContext {
-        const projectPath = path.join(folder.uri.fsPath, 'openedge-project.json');
-        const projectFile = fs.existsSync(projectPath) ? vscode.Uri.file(projectPath) : null;
-        const projectConfig = projectFile ? this.safeReadProject(projectFile) : null;
-        return this.createContext(folder.uri.fsPath, folder.uri, folder, projectFile, projectConfig);
-    }
-
     private createContext(
         id: string,
         rootUri: vscode.Uri,
         workspaceFolder: vscode.WorkspaceFolder,
         projectFile: vscode.Uri | null,
-        projectConfig?: any | null
+        projectConfig?: any
     ): ProjectContext {
         const config = projectConfig ?? (projectFile ? this.safeReadProject(projectFile) : null);
         return {
