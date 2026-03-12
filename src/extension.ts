@@ -381,9 +381,8 @@ function collectTests(item: vscode.TestItem, queue: vscode.TestItem[]): void {
  * that carry no URI.
  */
 async function discoverTests(controller: vscode.TestController) {
-    const config = vscode.workspace.getConfiguration('oeunit');
-    const testPattern = config.get<string>('testFilePattern', '**/test/**/*.cls');
-    const multiMode = config.get<boolean>('multiProjectMode', false);
+    // multiProjectMode is a workspace-level toggle — read without a resource scope.
+    const multiMode = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
 
     const contexts = projectDiscovery ? projectDiscovery.getContexts() : [];
 
@@ -395,6 +394,10 @@ async function discoverTests(controller: vscode.TestController) {
     testItemProjects.clear();
 
     for (const projectContext of contexts) {
+        // Read testFilePattern scoped to each project folder so individual
+        // projects can override the glob (e.g. a non-standard test directory).
+        const folderConfig = vscode.workspace.getConfiguration('oeunit', projectContext.rootUri);
+        const testPattern = folderConfig.get<string>('testFilePattern', '**/test/**/*.cls');
         const pattern = new vscode.RelativePattern(projectContext.rootUri, testPattern);
         const files = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
 
@@ -622,7 +625,6 @@ async function startPersistentServer(
     isManual: boolean = false,
     projectContextOverride?: ProjectContext
 ) {
-    const config = vscode.workspace.getConfiguration('oeunit');
     const projectContext: ProjectContext | undefined = projectContextOverride ?? projectDiscovery?.getDefaultContext();
 
     if (!projectContext) {
@@ -630,6 +632,10 @@ async function startPersistentServer(
         updateStatusBar('stopped');
         return;
     }
+
+    // Read settings scoped to this project's folder so that folder-level
+    // overrides in a multi-root workspace are honoured.
+    const config = vscode.workspace.getConfiguration('oeunit', projectContext.rootUri);
 
     // Guard against concurrent startup attempts for the same project.
     // onDidChangeContexts can fire multiple times in rapid succession at startup;

@@ -148,16 +148,10 @@ export async function startPersistentServer(
     context: vscode.ExtensionContext,
     isManual: boolean = false
 ): Promise<void> {
-    const config = vscode.workspace.getConfiguration('oeunit');
-    const autostart = config.get<boolean>('autostart', true);
-
-    if (!autostart && !isManual) {
-        console.log('[OEUnit] Autostart disabled, skipping automatic server startup');
-        updateStatusBar('stopped');
-        return;
-    }
-
-    const configuredWorkspace = config.get<string>('workspaceFolder');
+    // Resolve the workspace folder first so we can scope the configuration
+    // read to that folder, honouring any folder-level settings overrides.
+    const globalConfig = vscode.workspace.getConfiguration('oeunit');
+    const configuredWorkspace = globalConfig.get<string>('workspaceFolder');
     let workspaceFolder: string | undefined;
     if (configuredWorkspace) {
         workspaceFolder = configuredWorkspace;
@@ -174,6 +168,16 @@ export async function startPersistentServer(
         return;
     }
     singleProjectId = workspaceFolder;
+
+    // Scope remaining reads to the resolved folder so folder-level settings are honoured.
+    const config = vscode.workspace.getConfiguration('oeunit', vscode.Uri.file(workspaceFolder));
+    const autostart = config.get<boolean>('autostart', true);
+
+    if (!autostart && !isManual) {
+        console.log('[OEUnit] Autostart disabled, skipping automatic server startup');
+        updateStatusBar('stopped');
+        return;
+    }
 
     const execName = config.get<string>('exec');
     const oeArgs = config.get<string>('oeargs');

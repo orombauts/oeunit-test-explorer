@@ -57,9 +57,6 @@ export function refreshSingleTestFile(controller: vscode.TestController, fileUri
 }
 
 export async function discoverTests(controller: vscode.TestController): Promise<void> {
-    const config = vscode.workspace.getConfiguration('oeunit');
-    const testPattern = config.get<string>('testFilePattern', '**/test/**/*.cls');
-
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
         return;
@@ -80,8 +77,12 @@ export async function discoverTests(controller: vscode.TestController): Promise<
         }
     }
 
-    // Process test files using the now-complete map
+    // Process test files using the now-complete map.
+    // Read testFilePattern scoped to each folder so individual projects can
+    // override the glob pattern without affecting other workspace folders.
     for (const folder of workspaceFolders) {
+        const folderConfig = vscode.workspace.getConfiguration('oeunit', folder.uri);
+        const testPattern = folderConfig.get<string>('testFilePattern', '**/test/**/*.cls');
         const testFiles = await vscode.workspace.findFiles(
             new vscode.RelativePattern(folder, testPattern),
             '**/node_modules/**'

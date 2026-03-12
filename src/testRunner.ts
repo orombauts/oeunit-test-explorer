@@ -130,7 +130,9 @@ export class OEUnitTestRunner {
         testItem: vscode.TestItem,
         testMethod?: string
     ): Promise<void> {
-        const config = vscode.workspace.getConfiguration('oeunit');
+        // Scope the config read to the project folder so folder-level settings
+        // (e.g. per-project loglevel) are honoured in multi-root workspaces.
+        const config = vscode.workspace.getConfiguration('oeunit', vscode.Uri.file(projectId));
         const projectOverrides = config.get<Record<string, any>>('projects', {});
         // Case-insensitive key lookup (Windows paths are case-insensitive)
         const overrideKey = Object.keys(projectOverrides).find(k => k.toLowerCase() === projectId.toLowerCase());

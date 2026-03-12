@@ -63,31 +63,37 @@
       "properties": {
         "oeunit.exec": {
           "type": "string",
+          "scope": "resource",
           "default": "_progres.exe",
           "description": "OpenEdge executable name"
         },
         "oeunit.oeargs": {
           "type": "string",
+          "scope": "resource",
           "default": "-cpinternal utf-8 -cpstream utf-8 -cpcoll Basic -cpcase Basic",
           "description": "Additional OpenEdge arguments"
         },
         "oeunit.testFilePattern": {
           "type": "string",
+          "scope": "resource",
           "default": "**/test/**/*.cls",
           "description": "Glob pattern to find test files"
         },
         "oeunit.port": {
           "type": "number",
+          "scope": "resource",
           "default": 5555,
           "description": "Port number for the OEUnit persistent server"
         },
         "oeunit.timeout": {
           "type": "number",
+          "scope": "resource",
           "default": 60,
           "description": "Socket timeout in seconds for client connections and server reads (default: 60)"
         },
         "oeunit.loglevel": {
           "type": "string",
+          "scope": "resource",
           "default": "error",
           "enum": [
             "info",
@@ -104,11 +110,13 @@
         },
         "oeunit.autostart": {
           "type": "boolean",
+          "scope": "resource",
           "default": false,
           "description": "Automatically start the OEUnit server when the extension activates"
         },
         "oeunit.environmentVariables": {
           "type": "object",
+          "scope": "resource",
           "default": {},
           "description": "Environment variables to set when starting the Progress executable. These can override DLC and PROPATH if needed.",
           "additionalProperties": {
@@ -117,21 +125,25 @@
         },
         "oeunit.multiProjectMode": {
           "type": "boolean",
+          "scope": "resource",
           "default": false,
           "markdownDescription": "**[Experimental]** Enable multi-project workspace support. When enabled, the extension scans all `openedge-project.json` files in the workspace, starts a dedicated OEUnit server per project (on separate ports), and maps test items to their owning project. Requires a window reload to take full effect."
         },
         "oeunit.portBase": {
           "type": "number",
+          "scope": "resource",
           "default": 5555,
           "description": "Base port used when multi-project mode allocates dedicated server ports"
         },
         "oeunit.portStep": {
           "type": "number",
+          "scope": "resource",
           "default": 10,
           "description": "Port increment applied between multi-project OEUnit servers"
         },
         "oeunit.projects": {
           "type": "object",
+          "scope": "resource",
           "default": {},
           "description": "Per-project overrides keyed by project identifier (advanced)"
         }
