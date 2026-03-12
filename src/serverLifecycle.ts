@@ -19,9 +19,14 @@ export interface ProjectConfig {
 }
 
 let serverManager: OEUnitServerManager | null = null;
+let serverEverStarted: boolean = false;
 let statusBarItem: vscode.StatusBarItem;
 let serverOutputChannel: vscode.OutputChannel;
 let configChangeTimeout: NodeJS.Timeout | undefined;
+
+export function hasServerEverStarted(): boolean {
+    return serverEverStarted;
+}
 
 // Must be called once from activate() after the status bar item and output channel
 // have been created and registered with context.subscriptions.
@@ -255,6 +260,7 @@ export async function startPersistentServer(
 
         if (started) {
             testRunner.setServerManager(serverManager);
+            serverEverStarted = true;
             updateStatusBar('running');
             vscode.window.showInformationMessage('OEUnit persistent server started successfully');
             console.log('[OEUnit] Persistent server started successfully');
@@ -300,6 +306,20 @@ export async function stopServer(runner: OEUnitTestRunner): Promise<void> {
     updateStatusBar('stopped');
     vscode.window.showInformationMessage('OEUnit server stopped');
     console.log('[OEUnit] Server stopped');
+}
+
+export function killServer(runner: OEUnitTestRunner): void {
+    if (!serverManager) {
+        vscode.window.showInformationMessage('OEUnit server is not running');
+        return;
+    }
+    updateStatusBar('stopping');
+    serverManager.killServer();
+    runner.setServerManager(null);
+    serverManager = null;
+    updateStatusBar('stopped');
+    vscode.window.showInformationMessage('OEUnit server process killed');
+    console.log('[OEUnit] Server process force-killed');
 }
 
 export async function restartServer(runner: OEUnitTestRunner, context: vscode.ExtensionContext): Promise<void> {

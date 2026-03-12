@@ -2,7 +2,7 @@
   "name": "abl-oeunit-test-explorer",
   "displayName": "OpenEdge ABL OEUnit Test Explorer",
   "description": "Run and explore OpenEdge ABL unit tests using OEUnit",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
@@ -33,6 +33,10 @@
       {
         "command": "oeunit.startServer",
         "title": "OEUnit: Start Server"
+      },
+      {
+        "command": "oeunit.killServer",
+        "title": "OEUnit: Kill Server"
       },
       {
         "command": "oeunit.pingServer",
@@ -104,13 +108,16 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/node": "18.x",
     "@types/vscode": "^1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^3.0.0",
     "eslint": "^8.54.0",
     "typescript": "^5.3.0"
   }

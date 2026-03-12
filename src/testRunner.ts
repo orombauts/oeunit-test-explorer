@@ -1,6 +1,7 @@
 ﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import { OEUnitServerManager } from './serverManager';
+import { hasServerEverStarted } from './serverLifecycle';
 import { log } from './utils';
 
 // Import types from serverManager
@@ -62,28 +63,43 @@ export class OEUnitTestRunner {
         this.log(`Server manager exists: ${!!this.serverManager}, Server running: ${serverRunning}`);
 
         if (!serverRunning) {
-            // Server not running - fail the test
-            this.log('ERROR: Server is not running. Tests cannot be executed.');
-            this.log('Please start the server using the "OEUnit: Start Server" command before running tests.');
-            
-            const errorMessage = new vscode.TestMessage('OEUnit server is not running. Please start the server first.');
-            const actions: vscode.MessageItem[] = [{ title: 'Start Server' }];
-            
-            vscode.window.showErrorMessage('Cannot run tests: OEUnit server is not running', ...actions).then(selection => {
-                if (selection?.title === 'Start Server') {
-                    vscode.commands.executeCommand('oeunit.startServer');
-                }
-            });
+            if (!hasServerEverStarted()) {
+                // Server was never started this session — start it automatically on first test run
+                this.log('Server never started this session. Starting automatically for first test run...');
+                vscode.window.showInformationMessage('OEUnit server was not running — starting automatically for test run...');
+                await vscode.commands.executeCommand('oeunit.startServer');
 
-            // Mark test as failed
-            if (testItem.children.size > 0) {
-                // If test item has children (test methods), fail all of them
-                testItem.children.forEach(child => {
-                    run.failed(child, errorMessage);
+                // Re-check after startup attempt
+                const serverNowRunning = this.serverManager && this.serverManager.isServerRunning();
+                if (!serverNowRunning) {
+                    const errorMessage = new vscode.TestMessage('OEUnit server failed to start. Check OEUnit Server output for details.');
+                    if (testItem.children.size > 0) {
+                        testItem.children.forEach(child => run.failed(child, errorMessage));
+                    }
+                    run.failed(testItem, errorMessage);
+                    return;
+                }
+                // Server is now running — fall through to run the test
+            } else {
+                // Server was started before but is no longer running
+                this.log('ERROR: Server is not running. Tests cannot be executed.');
+                this.log('Please start the server using the "OEUnit: Start Server" command before running tests.');
+
+                const errorMessage = new vscode.TestMessage('OEUnit server is not running. Please start the server first.');
+                const actions: vscode.MessageItem[] = [{ title: 'Start Server' }];
+
+                vscode.window.showErrorMessage('Cannot run tests: OEUnit server is not running', ...actions).then(selection => {
+                    if (selection?.title === 'Start Server') {
+                        vscode.commands.executeCommand('oeunit.startServer');
+                    }
                 });
+
+                if (testItem.children.size > 0) {
+                    testItem.children.forEach(child => run.failed(child, errorMessage));
+                }
+                run.failed(testItem, errorMessage);
+                return;
             }
-            run.failed(testItem, errorMessage);
-            return;
         }
 
         // Use persistent server
@@ -181,9 +197,9 @@ export class OEUnitTestRunner {
             case 'Failed':
                 const failureMsg = testCase.Failure || 'Test failed';
                 const errorMsg = new vscode.TestMessage(failureMsg);
-                
+
                 this.outputChannel.appendLine(`   -${testCase.Case}: ${failureMsg} (${testCase.DurationMs}ms)`);
-                
+
                 run.failed(testItem, errorMsg, testCase.DurationMs);
                 break;
 

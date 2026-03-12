@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { OEUnitTestRunner } from './testRunner';
 import {
     initServerLifecycle, getServerManager, handleConfigurationChange,
-    startPersistentServer, startServer, stopServer, restartServer, pingServer, updateStatusBar
+    startPersistentServer, startServer, stopServer, killServer, restartServer, pingServer, updateStatusBar
 } from './serverLifecycle';
 import {
     discoverTests, collectTests,
@@ -62,6 +62,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.startServer', async () => {
             await startServer(testRunner, context);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('oeunit.killServer', () => {
+            killServer(testRunner);
         })
     );
 

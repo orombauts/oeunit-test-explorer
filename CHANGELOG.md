@@ -1,5 +1,11 @@
 # Change Log
 
+## [0.2.0] - 2026-03-12
+
+### Added
+- New `OEUnit: Kill Server` command to force-kill the server process immediately (without graceful shutdown)
+- Auto-start on first test run: if the server has never been started in the current session, running a test will start it automatically
+
 ## [0.1.6] - 2026-03-04
 
 ### Added

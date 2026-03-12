@@ -195,6 +195,18 @@ export class OEUnitServerManager {
         });
     }
 
+    killServer(): void {
+        if (!this.serverProcess) {
+            this.log('No server process to kill');
+            return;
+        }
+        this.log('Force-killing server process...');
+        this.serverProcess.kill();
+        this.isRunning = false;
+        this.serverProcess = null;
+        this.log('Server process killed');
+    }
+
     async stopServer(): Promise<void> {
         if (!this.isRunning || !this.serverProcess) {
             return;

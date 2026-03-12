@@ -9,7 +9,7 @@ A Visual Studio Code extension for running and exploring OpenEdge ABL unit tests
 - **Run Tests**: Execute individual test files, test methods, or all tests
 - **Test Discovery**: Automatically discovers test files matching the configured pattern
 - **Real-time Results**: View test results with detailed output via JSON communication
-- **Server Management**: Commands to start, stop, restart, and ping the test server
+- **Server Management**: Commands to start, stop, restart, kill, and ping the test server
 - **Status Bar**: Visual indicator showing current server status
 - **Auto-restart on Config Changes**: Server automatically restarts when settings change
 - **Database Support**: Automatic database connection and alias configuration
@@ -124,8 +124,9 @@ The extension provides the following commands (accessible via Command Palette: `
 
 ### Server Commands
 - **OEUnit: Start Server** - Start the persistent test server
-- **OEUnit: Stop Server** - Stop the persistent test server
+- **OEUnit: Stop Server** - Gracefully stop the persistent test server
 - **OEUnit: Restart Server** - Restart the persistent test server
+- **OEUnit: Kill Server** - Force-kill the server process immediately (use when Stop Server hangs)
 - **OEUnit: Ping Server** - Send PING to server to verify it's responding
 
 ### Test Commands
@@ -162,9 +163,11 @@ Check the **Developer Tools Console** (Help > Toggle Developer Tools) for detail
 
 ### Tests Fail with "Server is not running"
 
+- On the **first test run**, the server will start automatically if it has never been started in the current session
+- If the server was previously running but has since stopped, use **OEUnit: Start Server** to restart it
 - Check the status bar - server should show "Running" status
-- Use **OEUnit: Start Server** command to start the server
 - Use **OEUnit: Ping Server** command to verify server is responding
+- If the server appears stuck, use **OEUnit: Kill Server** to force-kill it, then start it again
 - Review the **OEUnit Server** output channel for errors
 
 ### Configuration Issues
