@@ -5,6 +5,11 @@
 ### Added
 - New `OEUnit: Kill Server` command to force-kill the server process immediately (without graceful shutdown)
 - Auto-start on first test run: if the server has never been started in the current session, running a test will start it automatically
+- Test methods inherited from parent classes via `INHERITS` are now discovered and listed as runnable test cases in the test explorer
+
+### Improved
+- Modifying a test class file no longer triggers a full rebuild of the test view; only the changed file is re-parsed and updated in place
+- Non-test class file changes (e.g. editing a parent class) still trigger a full re-discovery to keep the inheritance chain accurate
 
 ## [0.1.6] - 2026-03-04
 
