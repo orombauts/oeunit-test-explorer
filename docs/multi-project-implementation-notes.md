@@ -178,6 +178,19 @@ calls `discoverTests()` internally.
 
 ---
 
+### BUG-7: Stale `serverManager` reference in auto-start path
+
+**Symptom:** After calling `startServer` from `OEUnitTestRunner.runTestFile`, the
+subsequent waiting loop used a stale reference and never found the running server.
+
+**Root cause:** The auto-start code path still referenced `this.serverManager` (a field
+that predated multi-project support and no longer exists); corrected to
+`this.serverManagers.get(projectId)` to resolve the per-project instance.
+
+**Fix:** Replaced all occurrences in `testRunner.ts`.
+
+---
+
 ## 4. Deviations from the Original Plan
 
 | Plan Item (§5 / §6) | Status | Notes |
@@ -196,6 +209,17 @@ calls `discoverTests()` internally.
 ## 5. Configuration Reference
 
 All new settings have sensible defaults and are backwards-compatible.
+
+### 5.1 Resource scope
+
+Every `oeunit.*` setting in `package.json` now declares `"scope": "resource"`.  This
+means VS Code exposes the setting in the per-folder **Workspace Folder Settings** UI in
+a multi-root workspace.  All internal reads pass the folder's resource URI to
+`vscode.workspace.getConfiguration('oeunit', resourceUri)` so folder-level values are
+actually used at runtime (without the URI argument VS Code silently falls back to the
+workspace-level value).
+
+### 5.2 Settings added in this PR
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|

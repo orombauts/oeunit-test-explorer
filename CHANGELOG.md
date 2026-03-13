@@ -32,10 +32,18 @@
 - Restored full JSON validation for `openedge-project.json` (UTF-16 BOM, UTF-8 BOM,
   parse error with "Open File" button, missing `oeversion` field) that was inadvertently
   dropped during the rewrite.
+- `OEUnitTestRunner`: auto-start re-check after `oeunit.startServer` used a stale
+  `this.serverManager` reference (pre-multi-project field); corrected to
+  `this.serverManagers.get(projectId)` so the right server instance is picked up.
 
 ### Changed
 - `activate` is now `async` to allow sequential server startup in multi-project mode.
 - `deactivate` stops all server managers in parallel (`Promise.allSettled`).
+- All `oeunit.*` configuration properties now declare `"scope": "resource"`, making every
+  setting configurable per folder in a multi-root workspace via the VS Code Settings UI.
+- All `vscode.workspace.getConfiguration('oeunit')` reads pass the folder's resource URI
+  so folder-level overrides are honoured at runtime across `extension.ts`,
+  `serverLifecycle.ts`, `testDiscovery.ts`, and `testRunner.ts`.
 
 ## [0.2.0] - 2026-03-12
 
@@ -49,7 +57,6 @@
 - Non-test class file changes (e.g. editing a parent class) still trigger a full re-discovery to keep the inheritance chain accurate
 
 ## [0.1.6] - 2026-03-04
-
 
 ### Added
 - Support for custom environment variables via `oeunit.environmentVariables` configuration
