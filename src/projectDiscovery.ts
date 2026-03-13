@@ -24,24 +24,58 @@ export class ProjectDiscovery {
         const nextContexts: ProjectContext[] = [];
 
         if (!useMulti) {
+            // ── Legacy single-project mode ──────────────────────────────────
+            // Honour oeunit.workspaceFolder if set, otherwise use the first
+            // workspace folder.
             const configured = config.get<string>('workspaceFolder');
             const folder = this.resolveWorkspaceFolder(configured, workspaceFolders);
             if (folder) {
-                const projectPath = path.join(folder.uri.fsPath, 'openedge-project.json');
-                const projectFile = fs.existsSync(projectPath) ? vscode.Uri.file(projectPath) : null;
+                const projectJsonPath = path.join(folder.uri.fsPath, 'openedge-project.json');
+                const projectFile = fs.existsSync(projectJsonPath) ? vscode.Uri.file(projectJsonPath) : null;
                 nextContexts.push(this.createContext(folder.uri.fsPath, folder.uri, folder, projectFile));
             }
         } else {
-            // In multi-project mode, honour exactly the workspace folders defined
-            // in the .code-workspace file — one project context per folder that
-            // has an openedge-project.json at its root.  Recursive findFiles is
-            // intentionally avoided to prevent sub-directories (or a Root folder
-            // that physically contains other named workspace folders) from
-            // generating unexpected extra contexts.
-            for (const folder of workspaceFolders) {
-                const projectPath = path.join(folder.uri.fsPath, 'openedge-project.json');
-                if (fs.existsSync(projectPath)) {
-                    const projectFile = vscode.Uri.file(projectPath);
+            // ── Multi-project mode: three-tier discovery priority ────────────
+            const explicitPaths = config.get<string[]>('projectPaths', []).map(p => path.normalize(p)).filter(Boolean);
+
+            if (explicitPaths.length > 0) {
+                // Priority 1: User has listed explicit project folders.
+                // Only these paths are used; automatic detection is skipped.
+                for (let i = 0; i < explicitPaths.length; i++) {
+                    const folderPath = explicitPaths[i];
+                    const rootUri = vscode.Uri.file(folderPath);
+                    const projectJsonPath = path.join(folderPath, 'openedge-project.json');
+                    const projectFile = fs.existsSync(projectJsonPath) ? vscode.Uri.file(projectJsonPath) : null;
+
+                    // Try to match against an official VS Code workspace folder so
+                    // API calls that require a WorkspaceFolder still work correctly.
+                    const knownFolder = workspaceFolders.find(f =>
+                        path.normalize(f.uri.fsPath).toLowerCase() === folderPath.toLowerCase()
+                    ) ?? this.makeSyntheticFolder(rootUri, i);
+
+                    nextContexts.push(this.createContext(folderPath, rootUri, knownFolder, projectFile));
+                }
+            } else if (workspaceFolders.length > 1) {
+                // Priority 2: Multi-root workspace (.code-workspace) — one context
+                // per workspace folder whose root contains openedge-project.json.
+                // Recursive findFiles is intentionally avoided to prevent a "Root"
+                // folder that physically contains the named sub-folders from
+                // producing duplicate contexts.
+                for (const folder of workspaceFolders) {
+                    const projectJsonPath = path.join(folder.uri.fsPath, 'openedge-project.json');
+                    if (fs.existsSync(projectJsonPath)) {
+                        const projectFile = vscode.Uri.file(projectJsonPath);
+                        nextContexts.push(this.createContext(folder.uri.fsPath, folder.uri, folder, projectFile));
+                    }
+                }
+            } else {
+                // Priority 3: Single folder opened directly — detect
+                // openedge-project.json at the workspace root, exactly as in
+                // single-project legacy mode, but wrapped in a multi-project context.
+                const folder = workspaceFolders[0];
+                if (folder) {
+                    const projectJsonPath = path.join(folder.uri.fsPath, 'openedge-project.json');
+                    const projectFile = fs.existsSync(projectJsonPath) ? vscode.Uri.file(projectJsonPath) : null;
                     nextContexts.push(this.createContext(folder.uri.fsPath, folder.uri, folder, projectFile));
                 }
             }
@@ -51,6 +85,15 @@ export class ProjectDiscovery {
 
         this.contexts = nextContexts;
         this.onDidChangeEmitter.fire(this.getContexts());
+    }
+
+    /**
+     * Creates a minimal WorkspaceFolder-compatible object for a path that is
+     * not officially registered as a VS Code workspace folder (e.g. a path from
+     * oeunit.projectPaths that sits outside the current .code-workspace).
+     */
+    private makeSyntheticFolder(uri: vscode.Uri, index: number): vscode.WorkspaceFolder {
+        return { uri, name: path.basename(uri.fsPath), index };
     }
 
     getContexts(): ProjectContext[] {

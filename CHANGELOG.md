@@ -16,6 +16,14 @@
 - **Per-project overrides** via `oeunit.projects` object in workspace settings:
   port, loglevel, autostart, timeout, exec, oeargs, environmentVariables — all
   per project, case-insensitive key matching on Windows.
+- **Explicit project list** (`oeunit.projectPaths`): add absolute folder paths via the
+  VS Code Settings UI (Add/Remove list) or the new **OEUnit: Add Project Folder…** command
+  which opens a native folder-picker dialog. When non-empty, these paths take priority over
+  automatic workspace-folder detection.
+- **Three-tier project discovery** (multi-project mode):
+  1. `oeunit.projectPaths` if configured → use those paths exclusively
+  2. Multi-root workspace (`.code-workspace`) → auto-detect workspace folders with `openedge-project.json`
+  3. Single folder opened directly → detect `openedge-project.json` at the root (same as legacy mode)
 - **Bulk server commands**: `OEUnit: Start All Servers`, `Stop All Servers`,
   `Restart All Servers` (experimental, multi-project only).
 - **Project quick-pick for single-server commands**: `start/stop/restart/ping`

@@ -174,7 +174,39 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-    
+
+    // Open a native folder-picker and append the selected path(s) to
+    // oeunit.projectPaths so the user never has to type absolute paths manually.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('oeunit.addProjectPath', async () => {
+            const uris = await vscode.window.showOpenDialog({
+                canSelectFolders: true,
+                canSelectFiles: false,
+                canSelectMany: true,
+                openLabel: 'Add as OEUnit Project',
+                title: 'Select Project Folder(s) — must contain openedge-project.json',
+            });
+            if (!uris || uris.length === 0) { return; }
+
+            const cfg = vscode.workspace.getConfiguration('oeunit');
+            const current = cfg.get<string[]>('projectPaths', []);
+            const toAdd = uris
+                .map(u => u.fsPath)
+                .filter(p => !current.some(c =>
+                    path.normalize(c).toLowerCase() === path.normalize(p).toLowerCase()
+                ));
+
+            if (toAdd.length === 0) {
+                vscode.window.showInformationMessage('OEUnit: Selected folder(s) are already in the project list.');
+                return;
+            }
+
+            await cfg.update('projectPaths', [...current, ...toAdd], vscode.ConfigurationTarget.Workspace);
+            vscode.window.showInformationMessage(`OEUnit: Added ${toAdd.length} project folder(s). Refreshing…`);
+            await projectDiscovery.refresh();
+        })
+    );
+
     // Watch for configuration changes
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
@@ -192,6 +224,27 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (answer === 'Reload Window') {
                         vscode.commands.executeCommand('workbench.action.reloadWindow');
                     }
+                    return;
+                }
+                // projectPaths change: refresh discovery and start any new servers
+                // immediately (1 s debounce) — this is an explicit user action so a
+                // full 5-second restart cycle is unnecessary.
+                if (e.affectsConfiguration('oeunit.projectPaths')) {
+                    if (configChangeTimeout) { clearTimeout(configChangeTimeout); }
+                    configChangeTimeout = setTimeout(async () => {
+                        await projectDiscovery.refresh();
+                        const multiModeNow = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
+                        if (multiModeNow) {
+                            for (const ctx of projectDiscovery.getContexts()) {
+                                const alreadyRunning = serverManagers.get(ctx.id)?.isServerRunning();
+                                const alreadyStarting = serverStarting.has(ctx.id);
+                                if (!alreadyRunning && !alreadyStarting) {
+                                    await startPersistentServer(testRunner, context, false, ctx);
+                                }
+                            }
+                        }
+                        configChangeTimeout = undefined;
+                    }, 1000);
                     return;
                 }
                 // Clear existing timeout to debounce rapid changes

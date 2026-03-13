@@ -56,6 +56,11 @@
       {
         "command": "oeunit.restartAllServers",
         "title": "OEUnit: Restart All Servers (Experimental)"
+      },
+      {
+        "command": "oeunit.addProjectPath",
+        "title": "OEUnit: Add Project Folder…",
+        "category": "OEUnit"
       }
     ],
     "configuration": {
@@ -127,7 +132,16 @@
           "type": "boolean",
           "scope": "resource",
           "default": false,
-          "markdownDescription": "**[Experimental]** Enable multi-project workspace support. When enabled, the extension scans all `openedge-project.json` files in the workspace, starts a dedicated OEUnit server per project (on separate ports), and maps test items to their owning project. Requires a window reload to take full effect."
+          "markdownDescription": "**[Experimental]** Enable multi-project workspace support. When enabled, the extension starts a dedicated OEUnit server per project (on separate ports) and maps test items to their owning project. Project discovery follows a three-tier priority: (1) explicit `oeunit.projectPaths` if configured, (2) workspace folders from the `.code-workspace` file, (3) single-folder root detection. Requires a window reload to take full effect."
+        },
+        "oeunit.projectPaths": {
+          "type": "array",
+          "scope": "resource",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Explicit list of project root folder paths for multi-project mode. When non-empty, **overrides automatic project discovery** — only these folders are used. Each entry must be the absolute path to a folder containing `openedge-project.json`. Use the **OEUnit: Add Project Folder…** command for a folder-picker dialog, or add/remove entries here directly."
         },
         "oeunit.portBase": {
           "type": "number",
@@ -145,7 +159,19 @@
           "type": "object",
           "scope": "resource",
           "default": {},
-          "description": "Per-project overrides keyed by project identifier (advanced)"
+          "markdownDescription": "Per-project setting overrides, keyed by the **absolute folder path** of each project (case-insensitive on Windows). The key must match a path in `oeunit.projectPaths` or an auto-detected workspace folder. Supported keys: `port`, `loglevel`, `autostart`, `timeout`, `exec`, `oeargs`, `environmentVariables`.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "port":                 { "type": "number" },
+              "loglevel":             { "type": "string", "enum": ["info", "warning", "error"] },
+              "autostart":            { "type": "boolean" },
+              "timeout":              { "type": "number" },
+              "exec":                 { "type": "string" },
+              "oeargs":               { "type": "string" },
+              "environmentVariables": { "type": "object", "additionalProperties": { "type": "string" } }
+            }
+          }
         }
       }
     }
