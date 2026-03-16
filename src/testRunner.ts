@@ -1,7 +1,6 @@
-﻿import * as vscode from 'vscode';
-import * as path from 'path';
+import * as vscode from 'vscode';
+import { basename } from 'path';
 import { OEUnitServerManager } from './serverManager';
-import { hasServerEverStarted } from './serverLifecycle';
 import { log } from './utils';
 
 // Import types from serverManager
@@ -66,7 +65,7 @@ export class OEUnitTestRunner {
         testMethod?: string
     ): Promise<void> {
         this.outputChannel.show(true);
-        this.outputChannel.appendLine(`\nRunning tests in: ${path.basename(filePath)} (Extension v${this.extensionVersion})`);
+        this.outputChannel.appendLine(`\nRunning tests in: ${basename(filePath)} (Extension v${this.extensionVersion})`);
         this.outputChannel.appendLine(`[TestRunner] Project: ${projectId}`);
         if (testMethod) {
             this.outputChannel.appendLine(`Test method: ${testMethod}`);
@@ -79,8 +78,9 @@ export class OEUnitTestRunner {
         this.log(`Server manager exists: ${!!serverManager}, Server running: ${serverRunning}`);
 
         if (!serverRunning) {
-            if (!hasServerEverStarted()) {
-                // Server was never started this session — start it automatically on first test run
+            if (!serverManager) {
+                // No server manager exists yet — server was never started this session.
+                // Start it automatically on the first test run.
                 this.log('Server never started this session. Starting automatically for first test run...');
                 vscode.window.showInformationMessage('OEUnit server was not running — starting automatically for test run...');
                 await vscode.commands.executeCommand('oeunit.startServer');
@@ -133,11 +133,7 @@ export class OEUnitTestRunner {
         // Scope the config read to the project folder so folder-level settings
         // (e.g. per-project loglevel) are honoured in multi-root workspaces.
         const config = vscode.workspace.getConfiguration('oeunit', vscode.Uri.file(projectId));
-        const projectOverrides = config.get<Record<string, any>>('projects', {});
-        // Case-insensitive key lookup (Windows paths are case-insensitive)
-        const overrideKey = Object.keys(projectOverrides).find(k => k.toLowerCase() === projectId.toLowerCase());
-        const override = overrideKey ? projectOverrides[overrideKey] : undefined;
-        const logLevel = override?.loglevel ?? config.get<string>('loglevel') ?? 'info';
+        const logLevel = config.get<string>('loglevel') ?? 'info';
 
         try {
             // Send test request with JSON protocol - TestMethod parameter runs specific test method
