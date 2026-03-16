@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { basename, delimiter, isAbsolute, join, normalize, relative, sep } from 'path';
+import { createServer } from 'net';
 import { OEUnitTestRunner } from './testRunner';
 import { OEUnitServerManager } from './serverManager';
 import { ProjectDiscovery, ProjectContext } from './projectDiscovery';
+import { isAbstractClass, extractAllTestMethods } from './classParser';
 
 // --- Multi-project state ---
 // serverManagers holds one OEUnitServerManager per project, keyed by ProjectContext.id
@@ -30,6 +32,39 @@ const testItemProjects = new Map<string, string>();
 
 let configChangeTimeout: NodeJS.Timeout | undefined;
 
+/**
+ * Returns true when the given TCP port is not bound on 127.0.0.1.
+ * Uses a brief listen attempt so the check works regardless of OS firewall rules.
+ */
+function isPortFree(port: number): Promise<boolean> {
+    return new Promise(resolve => {
+        const server = createServer();
+        server.unref();
+        server.on('error', () => resolve(false));
+        server.listen(port, '127.0.0.1', () => {
+            server.close(() => resolve(true));
+        });
+    });
+}
+
+/**
+ * Scans ports starting at `fromPort` up to `portEnd` (inclusive) and returns
+ * the first port that is (a) not already claimed by a running serverManager
+ * and (b) not bound on the loopback interface.  Returns undefined when the
+ * entire range is exhausted.
+ */
+async function findAvailablePort(
+    fromPort: number,
+    portEnd: number,
+    claimedPorts: Set<number>
+): Promise<number | undefined> {
+    for (let p = fromPort; p <= portEnd; p++) {
+        if (claimedPorts.has(p)) { continue; }
+        if (await isPortFree(p)) { return p; }
+    }
+    return undefined;
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     console.log('OEUnit Test Explorer extension is now active');
 
@@ -45,22 +80,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
     const contextsSubscription = projectDiscovery.onDidChangeContexts(async () => {
         console.log('[OEUnit] Project contexts changed, triggering test rediscovery');
-        // discoverTests is called here so that both the initial discovery and any
-        // later context changes (e.g. a new openedge-project.json appearing) are
-        // handled in one place rather than being scattered across multiple watchers.
         discoverTests(controller);
-        // In multi-project mode also start a server for each newly discovered
-        // project that does not already have one running or starting.  This covers
-        // the case where the workspace file-system watcher detects a new
-        // openedge-project.json after VS Code has finished indexing the workspace.
-        const multiModeEnabled = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
-        if (multiModeEnabled) {
-            for (const projectContext of projectDiscovery.getContexts()) {
-                const alreadyRunning = serverManagers.get(projectContext.id)?.isServerRunning();
-                const alreadyStarting = serverStarting.has(projectContext.id);
-                if (!alreadyRunning && !alreadyStarting) {
-                    await startPersistentServer(testRunner, context, false, projectContext);
-                }
+        for (const projectContext of projectDiscovery.getContexts()) {
+            const alreadyRunning = serverManagers.get(projectContext.id)?.isServerRunning();
+            const alreadyStarting = serverStarting.has(projectContext.id);
+            if (!alreadyRunning && !alreadyStarting) {
+                await startPersistentServer(testRunner, context, false, projectContext);
             }
         }
     });
@@ -86,13 +111,8 @@ export async function activate(context: vscode.ExtensionContext) {
     // in single-project mode a single server is started for the configured
     // (or first) workspace folder.  The isManual flag is false so that the
     // oeunit.autostart setting is respected.
-    const multiModeEnabled = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
-    if (multiModeEnabled) {
-        for (const projectContext of projectDiscovery.getContexts()) {
-            await startPersistentServer(testRunner, context, false, projectContext);
-        }
-    } else {
-        startPersistentServer(testRunner, context, false);
+    for (const projectContext of projectDiscovery.getContexts()) {
+        await startPersistentServer(testRunner, context, false, projectContext);
     }
     
     // Register commands
@@ -129,6 +149,23 @@ export async function activate(context: vscode.ExtensionContext) {
             if (ctx) {
                 await pingServer(ctx);
             }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('oeunit.killServer', async () => {
+            const ctx = await pickProjectContext('Kill Server');
+            if (!ctx) { return; }
+            const manager = serverManagers.get(ctx.id);
+            if (!manager) {
+                vscode.window.showWarningMessage(`OEUnit: No server running for project ${basename(ctx.id)}`);
+                return;
+            }
+            manager.killServer();
+            testRunner.setServerManager(ctx.id, null);
+            serverManagers.delete(ctx.id);
+            updateStatusBar('stopped');
+            vscode.window.showInformationMessage(`OEUnit: Server force-killed for ${basename(ctx.id)}`);
         })
     );
 
@@ -193,7 +230,7 @@ export async function activate(context: vscode.ExtensionContext) {
             const toAdd = uris
                 .map(u => u.fsPath)
                 .filter(p => !current.some(c =>
-                    path.normalize(c).toLowerCase() === path.normalize(p).toLowerCase()
+                    normalize(c).toLowerCase() === normalize(p).toLowerCase()
                 ));
 
             if (toAdd.length === 0) {
@@ -211,58 +248,33 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
             if (e.affectsConfiguration('oeunit')) {
-                // multiProjectMode changes the entire tree structure and startup
-                // behaviour; a full window reload is the safest way to reinitialise
-                // everything cleanly rather than trying to tear down and rebuild
-                // selectively at runtime.
-                if (e.affectsConfiguration('oeunit.multiProjectMode')) {
-                    const answer = await vscode.window.showInformationMessage(
-                        'OEUnit: The multi-project mode setting has changed. A window reload is required to apply this change.',
-                        'Reload Window',
-                        'Later'
-                    );
-                    if (answer === 'Reload Window') {
-                        vscode.commands.executeCommand('workbench.action.reloadWindow');
-                    }
-                    return;
-                }
-                // projectPaths change: refresh discovery and start any new servers
-                // immediately (1 s debounce) — this is an explicit user action so a
-                // full 5-second restart cycle is unnecessary.
+                // projectPaths change: refresh discovery and start any newly added
+                // project servers immediately (1 s debounce).
                 if (e.affectsConfiguration('oeunit.projectPaths')) {
                     if (configChangeTimeout) { clearTimeout(configChangeTimeout); }
                     configChangeTimeout = setTimeout(async () => {
                         await projectDiscovery.refresh();
-                        const multiModeNow = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
-                        if (multiModeNow) {
-                            for (const ctx of projectDiscovery.getContexts()) {
-                                const alreadyRunning = serverManagers.get(ctx.id)?.isServerRunning();
-                                const alreadyStarting = serverStarting.has(ctx.id);
-                                if (!alreadyRunning && !alreadyStarting) {
-                                    await startPersistentServer(testRunner, context, false, ctx);
-                                }
+                        for (const ctx of projectDiscovery.getContexts()) {
+                            const alreadyRunning = serverManagers.get(ctx.id)?.isServerRunning();
+                            const alreadyStarting = serverStarting.has(ctx.id);
+                            if (!alreadyRunning && !alreadyStarting) {
+                                await startPersistentServer(testRunner, context, false, ctx);
                             }
                         }
                         configChangeTimeout = undefined;
                     }, 1000);
                     return;
                 }
-                // Clear existing timeout to debounce rapid changes
+                // All other oeunit.* setting changes: debounce and restart all servers.
                 if (configChangeTimeout) {
                     clearTimeout(configChangeTimeout);
                 }
-                // Wait 5 seconds after the last change before restarting
                 configChangeTimeout = setTimeout(async () => {
                     console.log('[OEUnit] Configuration changed, restarting server...');
                     vscode.window.showInformationMessage('OEUnit configuration changed, restarting server...');
                     await projectDiscovery.refresh();
-                    const multiModeNow = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
-                    if (multiModeNow) {
-                        for (const ctx of projectDiscovery.getContexts()) {
-                            await restartServer(testRunner, context, ctx);
-                        }
-                    } else {
-                        await restartServer(testRunner, context);
+                    for (const ctx of projectDiscovery.getContexts()) {
+                        await restartServer(testRunner, context, ctx);
                     }
                     configChangeTimeout = undefined;
                 }, 5000);
@@ -434,9 +446,6 @@ function collectTests(item: vscode.TestItem, queue: vscode.TestItem[]): void {
  * that carry no URI.
  */
 async function discoverTests(controller: vscode.TestController) {
-    // multiProjectMode is a workspace-level toggle — read without a resource scope.
-    const multiMode = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
-
     const contexts = projectDiscovery ? projectDiscovery.getContexts() : [];
 
     if (!contexts || contexts.length === 0) {
@@ -445,6 +454,11 @@ async function discoverTests(controller: vscode.TestController) {
 
     controller.items.replace([]);
     testItemProjects.clear();
+
+    // When multiple projects are present, nest each project's tests under a
+    // top-level project node so users can distinguish identically named folders
+    // across different projects. With a single project, files appear at the root.
+    const useProjectNodes = contexts.length > 1;
 
     for (const projectContext of contexts) {
         // Read testFilePattern scoped to each project folder so individual
@@ -458,8 +472,8 @@ async function discoverTests(controller: vscode.TestController) {
         // the project folder name so users can tell projects apart when multiple
         // projects share identical sub-folder names.
         let rootItems: vscode.TestItemCollection;
-        if (multiMode) {
-            const projectLabel = path.basename(projectContext.rootUri.fsPath);
+        if (useProjectNodes) {
+            const projectLabel = basename(projectContext.rootUri.fsPath);
             let projectItem = controller.items.get(projectContext.id);
             if (!projectItem) {
                 projectItem = controller.createTestItem(projectContext.id, projectLabel);
@@ -474,8 +488,19 @@ async function discoverTests(controller: vscode.TestController) {
             rootItems = controller.items;
         }
 
+        // Build a per-project classFileMap scoped strictly to this project's
+        // root so INHERITS chain resolution never crosses into another project.
+        const projectClassFileMap = new Map<string, string>();
+        const allCls = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(projectContext.rootUri, '**/*.cls'),
+            '**/node_modules/**'
+        );
+        for (const f of allCls) {
+            projectClassFileMap.set(f.fsPath.replace(/\\/g, '/').toLowerCase(), f.fsPath);
+        }
+
         for (const file of files) {
-            await addTestFile(controller, file, projectContext, rootItems);
+            await addTestFile(controller, file, projectContext, rootItems, projectClassFileMap);
         }
     }
 }
@@ -496,28 +521,32 @@ async function addTestFile(
     controller: vscode.TestController,
     fileUri: vscode.Uri,
     projectContext: ProjectContext,
-    rootItems: vscode.TestItemCollection
+    rootItems: vscode.TestItemCollection,
+    classFileMap: Map<string, string>
 ) {
     const filePath = fileUri.fsPath;
     const workspaceRoot = projectContext.rootUri.fsPath;
-    
+
     try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const testMethods = extractTestMethods(content);
+        const content = readFileSync(filePath, 'utf-8');
+        if (isAbstractClass(content)) {
+            return;
+        }
+        const testMethods = extractAllTestMethods(content, fileUri, classFileMap);
 
         if (testMethods.length === 0) {
             return;
         }
 
-        const relativePath = path.relative(workspaceRoot, filePath);
-        const pathParts = relativePath.split(path.sep);
+        const relativePath = relative(workspaceRoot, filePath);
+        const pathParts = relativePath.split(sep);
         
         let currentItems = rootItems;
         let currentPath = workspaceRoot;
         
         for (let i = 0; i < pathParts.length - 1; i++) {
             const folderName = pathParts[i];
-            currentPath = path.join(currentPath, folderName);
+            currentPath = join(currentPath, folderName);
             const folderId = currentPath;
             
             let folderItem = currentItems.get(folderId);
@@ -539,13 +568,16 @@ async function addTestFile(
 
         for (const method of testMethods) {
             const methodId = `${filePath}::${method.name}`;
-            const methodItem = controller.createTestItem(methodId, method.name, fileUri);
-            
+            // For inherited methods, sourceUri points to the parent file where
+            // the method is declared so Go-to-Definition navigates correctly.
+            const methodUri = method.sourceUri ?? fileUri;
+            const methodItem = controller.createTestItem(methodId, method.name, methodUri);
+
             methodItem.range = new vscode.Range(
                 new vscode.Position(method.line, 0),
                 new vscode.Position(method.line, 0)
             );
-            
+
             fileItem.children.add(methodItem);
             testItemProjects.set(methodId, projectContext.id);
         }
@@ -574,66 +606,6 @@ function resolveProjectIdForTestItem(item: vscode.TestItem | undefined): string 
     return resolveProjectIdForTestItem(item.parent);
 }
 
-interface TestMethod {
-    name: string;
-    line: number;
-}
-
-function isAbstractClass(content: string): boolean {
-    // Check if the class is declared as abstract
-    const lines = content.split('\n');
-    for (const line of lines) {
-        const trimmedLine = line.trim().toUpperCase();
-        // Match CLASS ... ABSTRACT pattern
-        if (trimmedLine.startsWith('CLASS ') && trimmedLine.includes('ABSTRACT')) {
-            return true;
-        }
-    }
-    return false;
-}
-
-function extractTestMethods(content: string): TestMethod[] {
-    const methods: TestMethod[] = [];
-    const lines = content.split('\n');
-    
-    // Skip abstract classes - they should not be tested
-    if (isAbstractClass(content)) {
-        return methods;
-    }
-    
-    let isTestAnnotated = false;
-    
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        
-        if (line.toLowerCase().includes('@test')) {
-            isTestAnnotated = true;
-            continue;
-        }
-        
-        const methodMatch = line.match(/METHOD\s+(?:PUBLIC|PRIVATE|PROTECTED)?\s+(?:VOID|[\w]+)\s+(test\w+)\s*\(/i);
-        
-        if (methodMatch) {
-            methods.push({
-                name: methodMatch[1],
-                line: i
-            });
-            isTestAnnotated = false;
-        } else if (isTestAnnotated) {
-            const altMethodMatch = line.match(/METHOD\s+(?:PUBLIC|PRIVATE|PROTECTED)?\s+(?:VOID|[\w]+)\s+([\w]+)\s*\(/i);
-            if (altMethodMatch) {
-                methods.push({
-                    name: altMethodMatch[1],
-                    line: i
-                });
-                isTestAnnotated = false;
-            }
-        }
-    }
-    
-    return methods;
-}
-
 /**
  * Presents a quick-pick so the user can choose which project to act on.
  *
@@ -653,14 +625,10 @@ async function pickProjectContext(actionLabel: string): Promise<ProjectContext |
     if (contexts.length === 1) {
         return contexts[0];
     }
-    const multiMode = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
-    if (!multiMode) {
-        return contexts[0];
-    }
     const items = contexts.map(ctx => {
         const isRunning = serverManagers.get(ctx.id)?.isServerRunning() ?? false;
         return {
-            label: path.basename(ctx.rootUri.fsPath),
+            label: basename(ctx.rootUri.fsPath),
             description: `${ctx.rootUri.fsPath}  $(${isRunning ? 'check' : 'circle-slash'})`,
             context: ctx
         };
@@ -700,17 +668,7 @@ async function startPersistentServer(
     }
     serverStarting.add(projectContext.id);
 
-    // Per-project overrides from oeunit.projects allow individual projects to
-    // use a different port, log level, autostart flag, etc. without changing the
-    // global oeunit.* settings.  Key lookup is case-insensitive because Windows
-    // filesystem paths are case-insensitive.
-    const projectOverrides = config.get<Record<string, any>>('projects', {});
-    const overrideKey = Object.keys(projectOverrides).find(k => k.toLowerCase() === projectContext.id.toLowerCase());
-    const override = overrideKey ? projectOverrides[overrideKey] : undefined;
-
-    const autostart = (override && typeof override.autostart === 'boolean')
-        ? override.autostart
-        : config.get<boolean>('autostart', true);
+    const autostart = config.get<boolean>('autostart', true);
 
     if (!autostart && !isManual) {
         console.log('[OEUnit] Autostart disabled for project, skipping automatic server startup');
@@ -724,8 +682,8 @@ async function startPersistentServer(
     console.log('[OEUnit] Starting server initialization for project:', workspaceFolder);
 
     // Check for openedge-project.json first
-    const projectJsonPath = projectContext.projectFile ? projectContext.projectFile.fsPath : path.join(workspaceFolder, 'openedge-project.json');
-    if (!fs.existsSync(projectJsonPath)) {
+    const projectJsonPath = projectContext.projectFile ? projectContext.projectFile.fsPath : join(workspaceFolder, 'openedge-project.json');
+    if (!existsSync(projectJsonPath)) {
         if (!isManual) {
             // In multi-project auto-start, silently skip folders without a project file.
             console.log('[OEUnit] No openedge-project.json for project, skipping:', workspaceFolder);
@@ -743,36 +701,67 @@ async function startPersistentServer(
     }
 
     // Get all required configuration
-    const execName = override?.exec ?? config.get<string>('exec');
-    const oeArgs = override?.oeargs ?? config.get<string>('oeargs');
-    const timeout = override?.timeout ?? config.get<number>('timeout') ?? 60;
-    let loglevel = override?.loglevel ?? config.get<string>('loglevel') ?? 'error';
+    const execName = config.get<string>('exec');
+    const oeArgs = config.get<string>('oeargs');
+    const timeout = config.get<number>('timeout') ?? 60;
+    let loglevel = config.get<string>('loglevel') ?? 'error';
 
-    // Port resolution priority:
-    //   1. Explicit port in oeunit.projects override for this project.
-    //   2. Auto-assigned port in multi-project mode: portBase + (projectIndex * portStep),
-    //      ensuring each project gets a unique port without manual configuration.
-    //   3. Global oeunit.port setting (single-project fallback).
-    const multiModeEnabled = config.get<boolean>('multiProjectMode', false);
-    const portOverride = typeof override?.port === 'number' ? override.port : undefined;
-    let port = config.get<number>('port');
-    if (typeof portOverride === 'number') {
-        port = portOverride;
-    } else if (multiModeEnabled) {
-        const basePort = config.get<number>('portBase', 5555);
-        const portStep = config.get<number>('portStep', 10);
+    // Port assignment strategy:
+    //   1. If the workspace folder has an explicit oeunit.port value set (per-folder
+    //      override in .code-workspace or folder .vscode/settings.json), use it
+    //      directly without any conflict check — the user owns that choice.
+    //   2. Otherwise, start at the configured base port + project index and scan
+    //      upward (step = 1) until a port that is both unclaimed by another running
+    //      serverManager AND free on the loopback interface is found.
+    //      If the range [startPort+index .. portEnd] is exhausted, also try from
+    //      startPort so a slot freed by a stopped project is reused before giving up.
+    const portInspect = config.inspect<number>('port');
+    const portFolderExplicit = portInspect?.workspaceFolderValue;
+    let port: number;
+
+    if (typeof portFolderExplicit === 'number') {
+        port = portFolderExplicit;
+    } else {
+        const startPort = portInspect?.workspaceValue ?? portInspect?.globalValue ?? 5555;
+        const portEnd = config.get<number>('portEnd', 6000);
+
+        // Collect ports already claimed by other running (or starting) server managers.
+        const claimedPorts = new Set<number>();
+        for (const [id, mgr] of serverManagers.entries()) {
+            if (id !== projectContext.id && mgr.isServerRunning()) {
+                const p = mgr.getPort();
+                if (typeof p === 'number') { claimedPorts.add(p); }
+            }
+        }
+
         const contexts = projectDiscovery.getContexts();
         const index = Math.max(0, contexts.findIndex(ctx => ctx.id === projectContext.id));
-        port = basePort + index * portStep;
-    }
-    if (typeof port !== 'number' || Number.isNaN(port)) {
-        port = config.get<number>('portBase', 5555);
+        const preferredPort = startPort + index;
+
+        // Scan from the preferred port first; if the range above it is full, wrap
+        // back to startPort so already-stopped slots can be reused.
+        const found = await findAvailablePort(preferredPort, portEnd, claimedPorts)
+                   ?? await findAvailablePort(startPort, Math.min(preferredPort - 1, portEnd), claimedPorts);
+
+        if (found === undefined) {
+            const errorMsg = `OEUnit server cannot start for project ${basename(projectContext.id)}: no free port found in range ${startPort}–${portEnd}. Raise oeunit.portEnd or set an explicit oeunit.port for this folder.`;
+            serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
+            serverOutputChannel.show(true);
+            updateStatusBar('error');
+            vscode.window.showErrorMessage(errorMsg);
+            serverStarting.delete(projectContext.id);
+            return;
+        }
+        port = found;
+        if (port !== preferredPort) {
+            console.log(`[OEUnit] Preferred port ${preferredPort} unavailable for ${basename(projectContext.id)}, using ${port}`);
+            serverOutputChannel.appendLine(`[INFO] Port ${preferredPort} occupied, assigned port ${port} for ${basename(projectContext.id)}.`);
+        }
     }
     if (!['info', 'warning', 'error'].includes(loglevel)) {
         loglevel = 'error';
     }
-    const customEnvVars = (override?.environmentVariables as Record<string, string> | undefined)
-        ?? config.get<Record<string, string>>('environmentVariables', {});
+    const customEnvVars = config.get<Record<string, string>>('environmentVariables', {});
 
     console.log('[OEUnit] Configuration values:');
     console.log('  - oeunit.exec:', execName || '(empty)');
@@ -783,7 +772,7 @@ async function startPersistentServer(
 
     try {
         // Parse openedge-project.json — robust read with encoding checks (from upstream)
-        const rawBytes = fs.readFileSync(projectJsonPath);
+        const rawBytes = readFileSync(projectJsonPath);
 
         // Check for UTF-16 BOM (not allowed — JSON must be UTF-8 per RFC 8259)
         if (rawBytes.length >= 2) {
@@ -886,20 +875,20 @@ async function startPersistentServer(
         const extensionPath = context.extensionPath;
         const propathEntries: string[] = [
             workspaceFolder,
-            path.join(extensionPath, 'abl')
+            join(extensionPath, 'abl')
         ];
 
         if (projectJson.buildPath && Array.isArray(projectJson.buildPath)) {
             for (const entry of projectJson.buildPath) {
                 const entryPath = entry.path || entry;
-                const fullPath = path.isAbsolute(entryPath) 
+                const fullPath = isAbsolute(entryPath) 
                     ? entryPath 
-                    : path.join(workspaceFolder, entryPath);
+                    : join(workspaceFolder, entryPath);
                 propathEntries.push(fullPath);
             }
         }
 
-        const propath = propathEntries.join(path.delimiter);
+        const propath = propathEntries.join(delimiter);
 
         // Get database connections
         const dbArgs: string[] = [];
@@ -1083,13 +1072,11 @@ async function pingServer(projectContextOverride?: ProjectContext): Promise<void
 }
 
 function updateStatusBar(state: 'starting' | 'running' | 'stopping' | 'stopped' | 'error'): void {
-    const multiMode = vscode.workspace.getConfiguration('oeunit').get<boolean>('multiProjectMode', false);
-    if (multiMode && projectDiscovery) {
+    if (projectDiscovery) {
         const contexts = projectDiscovery.getContexts();
         if (contexts.length > 1) {
             const running = contexts.filter(ctx => serverManagers.get(ctx.id)?.isServerRunning()).length;
             const total = contexts.length;
-            const allRunning = running === total;
             const noneRunning = running === 0;
             statusBarItem.text = `$(server) OEUnit: ${running}/${total} running`;
             statusBarItem.tooltip = `OEUnit: ${running} of ${total} project server(s) running. Click to restart the last active server.`;
