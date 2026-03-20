@@ -12,6 +12,9 @@
       "outFiles": [
         "${workspaceFolder}/out/**/*.js"
       ],
+      "env": {
+        "JAVA_HOME": "${input:java_home}"
+      },
       "preLaunchTask": "${defaultBuildTask}"
     }
   ],
@@ -20,6 +23,11 @@
       "id": "workspacePath",
       "type": "promptString",
       "description": "Work space file path (.code-workspace)"
+    },
+    {
+      "id": "java_home",
+      "type": "promptString",
+      "description": "Path to java home"
     }
   ]
 }
