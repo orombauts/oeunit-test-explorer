@@ -1,8 +1,7 @@
 # Change Log
 
-## [Unreleased] — Multi-project workspace support
+## [0.3.0] - 2026-03-20
 
-> **Note:** This feature is gated behind `oeunit.multiProjectMode: true` (default `false`).
 > All changes are fully backwards-compatible with existing single-project setups.
 
 ### Added
