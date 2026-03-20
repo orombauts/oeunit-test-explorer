@@ -93,11 +93,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
     testRunner = new OEUnitTestRunner();
     testRunner.setExtensionVersion(context.extension.packageJSON.version);
-    
+
     // Create output channel once and reuse it
     serverOutputChannel = vscode.window.createOutputChannel('OEUnit Server');
     context.subscriptions.push(serverOutputChannel);
-    
+
     // Create status bar item
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     statusBarItem.command = 'oeunit.restartServer';
@@ -105,7 +105,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(statusBarItem);
     updateStatusBar('starting');
     statusBarItem.show();
-    
+
     // Start the persistent ABL server(s) on activation.
     // In multi-project mode one server is started per discovered project context;
     // in single-project mode a single server is started for the configured
@@ -114,7 +114,7 @@ export async function activate(context: vscode.ExtensionContext) {
     for (const projectContext of projectDiscovery.getContexts()) {
         await startPersistentServer(testRunner, context, false, projectContext);
     }
-    
+
     // Register commands
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.restartServer', async () => {
@@ -124,7 +124,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-    
+
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.stopServer', async () => {
             const ctx = await pickProjectContext('Stop Server');
@@ -133,7 +133,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-    
+
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.startServer', async () => {
             const ctx = await pickProjectContext('Start Server');
@@ -142,7 +142,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-    
+
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.pingServer', async () => {
             const ctx = await pickProjectContext('Ping Server');
@@ -284,19 +284,19 @@ export async function activate(context: vscode.ExtensionContext) {
 
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.cls');
     context.subscriptions.push(watcher);
-    
+
     watcher.onDidChange(uri => {
         if (uri.path.includes('/test/')) {
             discoverTests(controller);
         }
     });
-    
+
     watcher.onDidCreate(uri => {
         if (uri.path.includes('/test/')) {
             discoverTests(controller);
         }
     });
-    
+
     watcher.onDidDelete(uri => {
         if (uri.path.includes('/test/')) {
             discoverTests(controller);
@@ -334,12 +334,12 @@ export async function activate(context: vscode.ExtensionContext) {
             } else {
                 controller.items.forEach(test => collectTests(test, queue));
             }
-            
+
             console.log('[OEUnit] Queue has', queue.length, 'tests');
 
             for (const test of queue) {
                 console.log('[OEUnit] Processing test:', test.id);
-                
+
                 if (token.isCancellationRequested) {
                     run.skipped(test);
                     continue;
@@ -540,24 +540,24 @@ async function addTestFile(
 
         const relativePath = relative(workspaceRoot, filePath);
         const pathParts = relativePath.split(sep);
-        
+
         let currentItems = rootItems;
         let currentPath = workspaceRoot;
-        
+
         for (let i = 0; i < pathParts.length - 1; i++) {
             const folderName = pathParts[i];
             currentPath = join(currentPath, folderName);
             const folderId = currentPath;
-            
+
             let folderItem = currentItems.get(folderId);
-            
+
             if (!folderItem) {
                 folderItem = controller.createTestItem(folderId, folderName);
                 folderItem.canResolveChildren = false;
                 currentItems.add(folderItem);
                 testItemProjects.set(folderId, projectContext.id);
             }
-            
+
             currentItems = folderItem.children;
         }
 
@@ -836,7 +836,7 @@ async function startPersistentServer(
         const ablConfig = vscode.workspace.getConfiguration('abl');
         const runtimes = ablConfig.get<any[]>('configuration.runtimes', []);
         const runtime = runtimes.find((rt: any) => rt.name === oeVersion);
-        
+
         if (!runtime || !runtime.path) {
             const errorMsg = `OEUnit server cannot start. DLC path not found for runtime '${oeVersion}'. Check abl.configuration.runtimes in settings.`;
             console.log('[OEUnit] DLC path not found, skipping server startup');
@@ -871,24 +871,7 @@ async function startPersistentServer(
 
         const dlcPath = runtime.path;
 
-        // Build PROPATH
         const extensionPath = context.extensionPath;
-        const propathEntries: string[] = [
-            workspaceFolder,
-            join(extensionPath, 'abl')
-        ];
-
-        if (projectJson.buildPath && Array.isArray(projectJson.buildPath)) {
-            for (const entry of projectJson.buildPath) {
-                const entryPath = entry.path || entry;
-                const fullPath = isAbsolute(entryPath) 
-                    ? entryPath 
-                    : join(workspaceFolder, entryPath);
-                propathEntries.push(fullPath);
-            }
-        }
-
-        const propath = propathEntries.join(delimiter);
 
         // Get database connections
         const dbArgs: string[] = [];
@@ -923,13 +906,12 @@ async function startPersistentServer(
             execName,
             oeArgs,
             workspaceFolder,
-            propath,
             dbArgs,
             dbAliasEnv,
             loglevel,
             customEnvVars
-        );        
-        
+        );
+
         if (started) {
             testRunner.setServerManager(projectContext.id, manager);
             updateStatusBar('running');
@@ -981,7 +963,7 @@ async function startServer(
         vscode.window.showInformationMessage(`OEUnit server is already running for project ${projectContext.id}`);
         return;
     }
-    
+
     updateStatusBar('starting');
     await startPersistentServer(runner, context, true, projectContext);
 }
@@ -1002,7 +984,7 @@ async function stopServer(projectContextOverride?: ProjectContext): Promise<void
         }
         return;
     }
-    
+
     updateStatusBar('stopping');
     await manager.stopServer();
     testRunner.setServerManager(projectContext.id, null);
@@ -1025,14 +1007,14 @@ async function restartServer(
     }
 
     console.log('[OEUnit] Restarting server for project', projectContext.id);
-    
+
     const manager = serverManagers.get(projectContext.id);
     if (manager && manager.isServerRunning()) {
         await stopServer(projectContext);
         // Wait a moment before restarting
         await new Promise(resolve => setTimeout(resolve, 500));
     }
-    
+
     await startPersistentServer(runner, context, true, projectContext);
 }
 
@@ -1053,11 +1035,11 @@ async function pingServer(projectContextOverride?: ProjectContext): Promise<void
         vscode.window.showWarningMessage(`OEUnit server is not running for project ${projectContext.id}`);
         return;
     }
-    
+
     try {
         console.log('[OEUnit] Pinging server...');
         const isHealthy = await manager.checkServerHealth();
-        
+
         if (isHealthy) {
             vscode.window.showInformationMessage('OEUnit server responded: PONG Γ£ô');
             console.log('[OEUnit] Server ping successful: PONG');

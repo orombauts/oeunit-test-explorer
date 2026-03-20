@@ -47,6 +47,13 @@ interface TestResponse {
     Reply?: string;
 }
 
+// Use a literal IPv4 address instead of 'localhost' to avoid an AggregateError.
+// Node.js v17+ resolves 'localhost' via DNS, which can return both ::1 (IPv6) and
+// 127.0.0.1 (IPv4). When the ABL server only listens on IPv4 and all address-family
+// attempts fail, Node.js wraps every failure into an AggregateError. Using the
+// literal address bypasses DNS resolution and ensures a single, plain Error on failure.
+const SERVER_HOST = '127.0.0.1';
+
 export class OEUnitServerManager {
     private serverProcess: ChildProcess | null = null;
     private outputChannel: vscode.OutputChannel;
@@ -73,7 +80,6 @@ export class OEUnitServerManager {
         execName: string,
         oeArgs: string,
         workspaceFolder: string,
-        propath: string,
         dbArgs: string[],
         dbAliasEnv: Record<string, string>,
         loglevel: string,
@@ -137,7 +143,6 @@ export class OEUnitServerManager {
                 env: {
                     ...process.env,
                     DLC: dlcPath,
-                    PROPATH: propath,
                     ...customEnvVars
                 }
             });
@@ -273,7 +278,7 @@ export class OEUnitServerManager {
             const timeoutMs = 2000;
             let shutdownSent = false;
 
-            client.connect(this.port, 'localhost', () => {
+            client.connect(this.port, SERVER_HOST, () => {
                 this.log(`Connected to server for shutdown`);
                 // Send JSON request
                 const requestJson = JSON.stringify(shutdownRequest);
@@ -332,7 +337,7 @@ export class OEUnitServerManager {
             const client = new Socket();
             let responseData = Buffer.alloc(0);
 
-            client.connect(this.port, 'localhost', () => {
+            client.connect(this.port, SERVER_HOST, () => {
                 this.log(`Connected to server`);
                 // Send JSON request
                 const requestJson = JSON.stringify(request);
