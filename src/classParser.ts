@@ -3,7 +3,7 @@
  * Responsible for extracting the class header, detecting abstract classes,
  * resolving INHERITS chains, and collecting test methods (own and inherited).
  */
-import * as fs from 'fs';
+import { readFileSync } from 'fs';
 import * as vscode from 'vscode';
 
 export interface TestMethod {
@@ -109,7 +109,7 @@ export function extractAllTestMethods(
     }
 
     try {
-        const superContent = fs.readFileSync(superFilePath, 'utf-8');
+        const superContent = readFileSync(superFilePath, 'utf-8');
         const superUri = vscode.Uri.file(superFilePath);
         const parentMethods = extractAllTestMethods(superContent, superUri, classFileMap, visited);
 

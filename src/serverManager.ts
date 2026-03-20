@@ -1,8 +1,8 @@
-﻿import * as vscode from 'vscode';
-import * as cp from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as net from 'net';
+import * as vscode from 'vscode';
+import { spawn, ChildProcess } from 'child_process';
+import { join } from 'path';
+import { existsSync } from 'fs';
+import { Socket } from 'net';
 import { log } from './utils';
 
 // JSON message types
@@ -48,7 +48,7 @@ interface TestResponse {
 }
 
 export class OEUnitServerManager {
-    private serverProcess: cp.ChildProcess | null = null;
+    private serverProcess: ChildProcess | null = null;
     private outputChannel: vscode.OutputChannel;
     private port: number;
     private timeout: number;
@@ -58,6 +58,10 @@ export class OEUnitServerManager {
         this.outputChannel = outputChannel;
         this.port = port;
         this.timeout = timeout;
+    }
+
+    getPort(): number {
+        return this.port;
     }
 
     private log(message: string): void {
@@ -82,11 +86,11 @@ export class OEUnitServerManager {
 
         this.log('Starting OEUnit persistent server...');
 
-        const progresPath = path.join(dlcPath, 'bin', execName);
-        const extensionPath = path.join(__dirname, '..');
-        const oeunitServerPath = path.join(extensionPath, 'abl', 'OEUnitServer.p');
+        const progresPath = join(dlcPath, 'bin', execName);
+        const extensionPath = join(__dirname, '..');
+        const oeunitServerPath = join(extensionPath, 'abl', 'OEUnitServer.p');
 
-        if (!fs.existsSync(oeunitServerPath)) {
+        if (!existsSync(oeunitServerPath)) {
             this.log(`\n${'='.repeat(80)}`);
             this.log(`ERROR: OEUnitServer.p not found`);
             this.log(`Expected location: ${oeunitServerPath}`);
@@ -114,7 +118,7 @@ export class OEUnitServerManager {
             '-param', sessionParam
         ];
 
-        if (!fs.existsSync(progresPath)) {
+        if (!existsSync(progresPath)) {
             this.log(`\n${'='.repeat(80)}`);
             this.log(`ERROR: Progress executable not found`);
             this.log(`Expected location: ${progresPath}`);
@@ -128,7 +132,7 @@ export class OEUnitServerManager {
         this.log(`SESSION:PARAMETER: ${sessionParam}`);
 
         return new Promise((resolve) => {
-            this.serverProcess = cp.spawn(progresPath, args, {
+            this.serverProcess = spawn(progresPath, args, {
                 cwd: workspaceFolder,
                 env: {
                     ...process.env,
@@ -262,7 +266,7 @@ export class OEUnitServerManager {
 
     private async sendShutdownRequest(): Promise<void> {
         return new Promise((resolve, reject) => {
-            const client = new net.Socket();
+            const client = new Socket();
             const shutdownRequest: ShutdownRequest = { RequestType: 'SHUTDOWN' };
 
             // Use a short timeout for shutdown since we don't expect a response
@@ -325,7 +329,7 @@ export class OEUnitServerManager {
 
     private async sendJsonRequest<T = TestResponse>(request: ServerRequest): Promise<T> {
         return new Promise((resolve, reject) => {
-            const client = new net.Socket();
+            const client = new Socket();
             let responseData = Buffer.alloc(0);
 
             client.connect(this.port, 'localhost', () => {

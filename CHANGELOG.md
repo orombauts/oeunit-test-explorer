@@ -1,5 +1,58 @@
 # Change Log
 
+## [Unreleased] — Multi-project workspace support
+
+> **Note:** This feature is gated behind `oeunit.multiProjectMode: true` (default `false`).
+> All changes are fully backwards-compatible with existing single-project setups.
+
+### Added
+- **Multi-project mode** (`oeunit.multiProjectMode`): one OEUnit server per VS Code
+  workspace folder, each isolated on its own port with its own PROPATH and DB connections.
+- **Project tree grouping**: in multi-project mode the Test Explorer tree gains a
+  top-level node per project so folders with identical names across different OpenEdge
+  versions remain distinguishable.
+- **Per-project port auto-assignment**: ports are allocated as `portBase + index × portStep`
+  (new settings `oeunit.portBase` / `oeunit.portStep`).
+- **Per-project overrides** via `oeunit.projects` object in workspace settings:
+  port, loglevel, autostart, timeout, exec, oeargs, environmentVariables — all
+  per project, case-insensitive key matching on Windows.
+- **Explicit project list** (`oeunit.projectPaths`): add absolute folder paths via the
+  VS Code Settings UI (Add/Remove list) or the new **OEUnit: Add Project Folder…** command
+  which opens a native folder-picker dialog. When non-empty, these paths take priority over
+  automatic workspace-folder detection.
+- **Three-tier project discovery** (multi-project mode):
+  1. `oeunit.projectPaths` if configured → use those paths exclusively
+  2. Multi-root workspace (`.code-workspace`) → auto-detect workspace folders with `openedge-project.json`
+  3. Single folder opened directly → detect `openedge-project.json` at the root (same as legacy mode)
+- **Bulk server commands**: `OEUnit: Start All Servers`, `Stop All Servers`,
+  `Restart All Servers` (experimental, multi-project only).
+- **Project quick-pick for single-server commands**: `start/stop/restart/ping`
+  show a project selector (with running/stopped icon) when multiple contexts exist;
+  single-project users are never prompted.
+- Declared `RiversideSoftware.openedge-abl-lsp` as an optional extension dependency.
+
+### Fixed
+- Server startup guard (`serverStarting` Set) prevents duplicate server processes when
+  `onDidChangeContexts` fires rapidly during workspace indexing.
+- `projectWatcher` no longer triggers a second test-discovery pass (was redundant with
+  `onDidChangeContexts`).
+- Case-insensitive path comparison for `oeunit.projects` override keys (Windows).
+- Restored full JSON validation for `openedge-project.json` (UTF-16 BOM, UTF-8 BOM,
+  parse error with "Open File" button, missing `oeversion` field) that was inadvertently
+  dropped during the rewrite.
+- `OEUnitTestRunner`: auto-start re-check after `oeunit.startServer` used a stale
+  `this.serverManager` reference (pre-multi-project field); corrected to
+  `this.serverManagers.get(projectId)` so the right server instance is picked up.
+
+### Changed
+- `activate` is now `async` to allow sequential server startup in multi-project mode.
+- `deactivate` stops all server managers in parallel (`Promise.allSettled`).
+- All `oeunit.*` configuration properties now declare `"scope": "resource"`, making every
+  setting configurable per folder in a multi-root workspace via the VS Code Settings UI.
+- All `vscode.workspace.getConfiguration('oeunit')` reads pass the folder's resource URI
+  so folder-level overrides are honoured at runtime across `extension.ts`,
+  `serverLifecycle.ts`, `testDiscovery.ts`, and `testRunner.ts`.
+
 ## [0.2.0] - 2026-03-12
 
 ### Added

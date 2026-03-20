@@ -20,6 +20,9 @@
     "workspaceContains:**/*.p"
   ],
   "main": "./out/extension.js",
+  "extensionOptionalDependencies": [
+    "RiversideSoftware.openedge-abl-lsp"
+  ],
   "contributes": {
     "commands": [
       {
@@ -41,6 +44,23 @@
       {
         "command": "oeunit.pingServer",
         "title": "OEUnit: Ping Server"
+      },
+      {
+        "command": "oeunit.startAllServers",
+        "title": "OEUnit: Start All Servers (Experimental)"
+      },
+      {
+        "command": "oeunit.stopAllServers",
+        "title": "OEUnit: Stop All Servers (Experimental)"
+      },
+      {
+        "command": "oeunit.restartAllServers",
+        "title": "OEUnit: Restart All Servers (Experimental)"
+      },
+      {
+        "command": "oeunit.addProjectPath",
+        "title": "OEUnit: Add Project Folder…",
+        "category": "OEUnit"
       }
     ],
     "configuration": {
@@ -48,31 +68,43 @@
       "properties": {
         "oeunit.exec": {
           "type": "string",
+          "scope": "resource",
           "default": "_progres.exe",
           "description": "OpenEdge executable name"
         },
         "oeunit.oeargs": {
           "type": "string",
+          "scope": "resource",
           "default": "-cpinternal utf-8 -cpstream utf-8 -cpcoll Basic -cpcase Basic",
           "description": "Additional OpenEdge arguments"
         },
         "oeunit.testFilePattern": {
           "type": "string",
+          "scope": "resource",
           "default": "**/test/**/*.cls",
           "description": "Glob pattern to find test files"
         },
         "oeunit.port": {
           "type": "number",
+          "scope": "resource",
           "default": 5555,
-          "description": "Port number for the OEUnit persistent server"
+          "description": "Starting port for OEUnit server(s). In a multi-project workspace each project is assigned port + index (0-based). A per-folder workspace setting overrides auto-assignment for that specific project."
+        },
+        "oeunit.portEnd": {
+          "type": "number",
+          "scope": "resource",
+          "default": 6000,
+          "description": "Upper bound (inclusive) for the auto-assigned OEUnit server port range. A warning is logged when no free port can be found within the range."
         },
         "oeunit.timeout": {
           "type": "number",
+          "scope": "resource",
           "default": 60,
           "description": "Socket timeout in seconds for client connections and server reads (default: 60)"
         },
         "oeunit.loglevel": {
           "type": "string",
+          "scope": "resource",
           "default": "error",
           "enum": [
             "info",
@@ -81,23 +113,35 @@
           ],
           "description": "Log level for OEUnit server (info=all messages, warning=warning+error, error=error only)"
         },
-        "oeunit.workspaceFolder": {
-          "type": "string",
-          "default": "",
-          "description": "Workspace folder path to use for OEUnit server (defaults to first workspace folder if not specified)"
-        },
+
         "oeunit.autostart": {
           "type": "boolean",
+          "scope": "resource",
           "default": false,
           "description": "Automatically start the OEUnit server when the extension activates"
         },
         "oeunit.environmentVariables": {
           "type": "object",
+          "scope": "resource",
           "default": {},
           "description": "Environment variables to set when starting the Progress executable. These can override DLC and PROPATH if needed.",
           "additionalProperties": {
             "type": "string"
           }
+        },
+
+        "oeunit.projectPaths": {
+          "type": "array",
+          "scope": "resource",
+          "default": [],
+          "items": { "type": "string" },
+          "markdownDescription": "Explicit list of project root folder paths. When non-empty, **overrides all automatic project discovery** — only these folders are used. Each entry must be the absolute path to a folder containing `openedge-project.json`. Use the **OEUnit: Add Project Folder…** command for a folder-picker dialog, or add/remove entries here directly."
+        },
+        "oeunit.workspaceFolder": {
+          "type": "string",
+          "scope": "resource",
+          "default": "",
+          "markdownDescription": "**Deprecated** — no longer used. Project discovery now happens automatically from workspace folders. This setting is kept only to avoid an 'unknown configuration' warning for users who had it set previously."
         }
       }
     }

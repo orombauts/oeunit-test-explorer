@@ -1,7 +1,6 @@
-﻿import * as vscode from 'vscode';
-import * as path from 'path';
+import * as vscode from 'vscode';
+import { basename } from 'path';
 import { OEUnitServerManager } from './serverManager';
-import { hasServerEverStarted } from './serverLifecycle';
 import { log } from './utils';
 
 // Import types from serverManager
@@ -31,8 +30,8 @@ interface TestResponse {
 
 export class OEUnitTestRunner {
     private outputChannel: vscode.OutputChannel;
-    private serverManager: OEUnitServerManager | null = null;
     private extensionVersion: string = 'unknown';
+    private readonly serverManagers = new Map<string, OEUnitServerManager>();
 
     constructor() {
         this.outputChannel = vscode.window.createOutputChannel('OEUnit Test Runner');
@@ -46,31 +45,48 @@ export class OEUnitTestRunner {
         this.extensionVersion = version;
     }
 
-    setServerManager(serverManager: OEUnitServerManager | null) {
-        this.serverManager = serverManager;
+    setServerManager(projectId: string, serverManager: OEUnitServerManager | null) {
+        if (!serverManager) {
+            this.serverManagers.delete(projectId);
+        } else {
+            this.serverManagers.set(projectId, serverManager);
+        }
     }
 
-    async runTestFile(filePath: string, run: vscode.TestRun, testItem: vscode.TestItem, testMethod?: string): Promise<void> {
+    clearServerManagers(): void {
+        this.serverManagers.clear();
+    }
+
+    async runTestFile(
+        filePath: string,
+        run: vscode.TestRun,
+        testItem: vscode.TestItem,
+        projectId: string,
+        testMethod?: string
+    ): Promise<void> {
         this.outputChannel.show(true);
-        this.outputChannel.appendLine(`\nRunning tests in: ${path.basename(filePath)} (Extension v${this.extensionVersion})`);
+        this.outputChannel.appendLine(`\nRunning tests in: ${basename(filePath)} (Extension v${this.extensionVersion})`);
+        this.outputChannel.appendLine(`[TestRunner] Project: ${projectId}`);
         if (testMethod) {
             this.outputChannel.appendLine(`Test method: ${testMethod}`);
         }
         this.outputChannel.appendLine('-'.repeat(80));
 
         // Check if server is running
-        const serverRunning = this.serverManager && this.serverManager.isServerRunning();
-        this.log(`Server manager exists: ${!!this.serverManager}, Server running: ${serverRunning}`);
+        const serverManager = this.serverManagers.get(projectId) ?? null;
+        const serverRunning = serverManager && serverManager.isServerRunning();
+        this.log(`Server manager exists: ${!!serverManager}, Server running: ${serverRunning}`);
 
         if (!serverRunning) {
-            if (!hasServerEverStarted()) {
-                // Server was never started this session — start it automatically on first test run
+            if (!serverManager) {
+                // No server manager exists yet — server was never started this session.
+                // Start it automatically on the first test run.
                 this.log('Server never started this session. Starting automatically for first test run...');
                 vscode.window.showInformationMessage('OEUnit server was not running — starting automatically for test run...');
                 await vscode.commands.executeCommand('oeunit.startServer');
 
                 // Re-check after startup attempt
-                const serverNowRunning = this.serverManager && this.serverManager.isServerRunning();
+                const serverNowRunning = this.serverManagers.get(projectId)?.isServerRunning() ?? false;
                 if (!serverNowRunning) {
                     const errorMessage = new vscode.TestMessage('OEUnit server failed to start. Check OEUnit Server output for details.');
                     if (testItem.children.size > 0) {
@@ -103,16 +119,25 @@ export class OEUnitTestRunner {
         }
 
         // Use persistent server
-        return this.runTestViaServer(filePath, run, testItem, testMethod);
+        return this.runTestViaServer(serverManager!, projectId, filePath, run, testItem, testMethod);
     }
 
-    private async runTestViaServer(filePath: string, run: vscode.TestRun, testItem: vscode.TestItem, testMethod?: string): Promise<void> {
-        const config = vscode.workspace.getConfiguration('oeunit');
-        const logLevel = config.get<string>('loglevel') || 'info';
+    private async runTestViaServer(
+        serverManager: OEUnitServerManager,
+        projectId: string,
+        filePath: string,
+        run: vscode.TestRun,
+        testItem: vscode.TestItem,
+        testMethod?: string
+    ): Promise<void> {
+        // Scope the config read to the project folder so folder-level settings
+        // (e.g. per-project loglevel) are honoured in multi-root workspaces.
+        const config = vscode.workspace.getConfiguration('oeunit', vscode.Uri.file(projectId));
+        const logLevel = config.get<string>('loglevel') ?? 'info';
 
         try {
             // Send test request with JSON protocol - TestMethod parameter runs specific test method
-            const response = await this.serverManager!.runTest(filePath, testMethod, logLevel) as any as TestResponse;
+            const response = await serverManager.runTest(filePath, testMethod, logLevel) as any as TestResponse;
 
             if (response.Status === 'ERROR') {
                 const errorMsg = response.Reply || 'Unknown error occurred';
