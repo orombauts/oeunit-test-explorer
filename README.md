@@ -1,202 +1,111 @@
 # OEUnit Test Explorer for VS Code
 
-A Visual Studio Code extension for running and exploring OpenEdge ABL unit tests using OEUnit with a persistent test server.
+VS Code extension for running OpenEdge ABL unit tests via the OEUnit framework using a persistent test server.
 
-## Features
+## Prerequisites
 
-- **Persistent Test Server**: Long-running OpenEdge process for faster test execution
-- **Test Explorer Integration**: Browse all test files and methods in VS Code's native Testing view
-- **Run Tests**: Execute individual test files, test methods, or all tests
-- **Test Discovery**: Automatically discovers test files matching the configured pattern
-- **Real-time Results**: View test results with detailed output via JSON communication
-- **Server Management**: Commands to start, stop, restart, kill, and ping the test server
-- **Status Bar**: Visual indicator showing current server status
-- **Auto-restart on Config Changes**: Server automatically restarts when settings change
-- **Database Support**: Automatic database connection and alias configuration
+- VS Code 1.85.0+
+- OpenEdge ABL environment with OEUnit installed
+- `openedge-project.json` in each project root
+- `abl.configuration.runtimes` configured with the OpenEdge runtime
 
-## Installation
+## Project Configuration
 
-### Prerequisites
+The extension reads `openedge-project.json` from your project root. Two fields are used:
 
-- Visual Studio Code 1.85.0 or higher
-- Node.js and npm installed
-- OpenEdge ABL development environment
-- OEUnit testing framework installed
-
-## Configuration
-
-Configure the extension in your workspace `.vscode/settings.json`:
+- **`oeversion`** *(required)*: must match a runtime name in `abl.configuration.runtimes` — used to locate DLC.
+- **`dbConnections`** *(optional)*: array of database connections. Each entry may have:
+  - `connect`: connection string passed directly as ABL arguments (e.g. `-db mydb -H localhost -S 3000`)
+  - `name` + `aliases`: array of logical alias names for this database
 
 ```json
 {
-  "oeunit.exec": "_progres.exe",
-  "oeunit.oeargs": "-cpinternal utf-8 -cpstream utf-8 -cpcoll Basic -cpcase Basic",
-  "oeunit.testFilePattern": "**/test/**/*.cls",
-  "oeunit.port": 5555,
-  "oeunit.timeout": 60,
-  "oeunit.loglevel": "error",
-  "oeunit.autostart": true
+  "oeversion": "12.8",
+  "dbConnections": [
+    {
+      "name": "mydb",
+      "connect": "-db mydb -H localhost -S 3000",
+      "aliases": ["alias1", "alias2"]
+    }
+  ]
 }
 ```
 
-### Required Settings
+## PROPATH and OEUnit Library
 
-- **oeunit.exec**: OpenEdge executable name (default: `_progres.exe`)
-- **oeunit.oeargs**: OpenEdge startup arguments (can include INI file with PROPATH definition)
+The extension does **not** construct a PROPATH from `openedge-project.json`. The full PROPATH — including the OEUnit library — must be supplied via `oeunit.oeargs`.
 
-### Optional Settings
+The typical approach is a startup parameter file (`-pf`) or an INI file (`-ini`):
 
-- **oeunit.testFilePattern**: Glob pattern to match test files (default: `**/test/**/*.cls`)
-- **oeunit.port**: Port number for the persistent test server (default: `5555`)
-- **oeunit.timeout**: Socket timeout in seconds for client connections and server reads (default: `60`)
-- **oeunit.loglevel**: Server log level - `info`, `warning`, or `error` (default: `error`)
-- **oeunit.workspaceFolder**: Workspace folder path to use for OEUnit server. If not specified, defaults to the first workspace folder. Useful in multi-root workspace scenarios
-- **oeunit.autostart**: Automatically start the OEUnit server when the extension activates (default: `true`)
-- **oeunit.environmentVariables**: Object containing custom environment variables to set when starting the Progress executable (default: `{}`). These variables can override DLC and PROPATH if needed. Example: `{"WRKDIR": "C:\\temp", "HTTPS_PROXY": "http://proxy:8080"}`
-
-### Project Configuration
-
-The extension requires an `openedge-project.json` file in your workspace root with:
-- `oeversion`: OpenEdge version name (must match a runtime configured in `abl.configuration.runtimes`)
-- `buildPath`: Array of PROPATH entries for your project
-- `dbConnections`: Array of database connection configurations with optional aliases
-
-**IMPORTANT**: The OEUnit library must be available in the PROPATH. You can achieve this either by:
-1. Adding the OEUnit path to the `buildPath` in `openedge-project.json`, or
-2. Specifying an INI file in `oeunit.oeargs` that defines the PROPATH (e.g., `-ini C:\path\to\startup.ini`)
-
-## Usage
-
-### Running Tests
-
-1. Open the **Test Explorer** view in VS Code's activity bar
-2. The extension will automatically discover test files matching your pattern
-3. Click the refresh icon (🔄) to manually refresh the test list
-4. Click the play icon (▶️) next to a test file to run that file's tests
-5. Click "Run All Tests" (▶️▶️) in the view title to run all discovered tests
-
-### Test Methods
-
-The extension discovers test methods by looking for:
-- Methods with the `@Test` annotation
-- Methods whose names start with "test" (case-insensitive)
-
-Example test class:
-```openedge
-CLASS TestExample:
-
-    @Test.
-    METHOD PUBLIC VOID testSomething():
-        Assert:Equals(1, 1).
-    END METHOD.
-
-    METHOD PUBLIC VOID testAnotherThing():
-        Assert:IsTrue(TRUE).
-    END METHOD.
-
-END CLASS.
+```
+"oeunit.oeargs": "-pf C:\\OpenEdge\\startup.pf"
 ```
 
-### Viewing Results
+The startup file must include the OEUnit library path in the PROPATH, e.g.:
 
-- Test execution output appears in the **OEUnit Test Runner** output channel
-- Test status icons update after each run:
-  - ○ Pending (not run)
-  - ✓ Passed (green)
-  - ✗ Failed/Error (red)
+```
+-cpinternal utf-8
+-cpstream utf-8
+-propath C:\libs\oeunit,C:\myproject\src
+```
 
-## Server Management
+## Settings
 
-The extension runs a persistent OpenEdge process to execute tests faster. The status bar shows the current server state.
+All settings are scoped per workspace folder, so multi-root workspaces can configure each project independently.
 
-### Status Bar Indicator
+| Setting | Default | Description |
+|---|---|---|
+| `oeunit.exec` | `_progres.exe` | OpenEdge executable name |
+| `oeunit.oeargs` | *(empty)* | Startup arguments — must include PROPATH with OEUnit |
+| `oeunit.testFilePattern` | `**/test/**/*.cls` | Glob pattern for test file discovery |
+| `oeunit.port` | `5555` | Base port; in multi-project mode each project gets `port + index` |
+| `oeunit.portEnd` | `6000` | Upper bound for auto port assignment |
+| `oeunit.timeout` | `60` | Socket timeout in seconds |
+| `oeunit.loglevel` | `error` | Server log verbosity: `info`, `warning`, or `error` |
+| `oeunit.autostart` | `false` | Start server automatically on extension activation |
+| `oeunit.projectPaths` | `[]` | Explicit list of project root paths — overrides automatic discovery when non-empty |
+| `oeunit.environmentVariables` | `{}` | Extra environment variables passed to the Progress process |
 
-- **$(loading~spin) OEUnit: Starting...** - Server is starting up
-- **$(check) OEUnit: Running** - Server is ready and accepting test requests
-- **$(circle-slash) OEUnit: Stopped** - Server is not running (yellow background)
-- **$(error) OEUnit: Error** - Server encountered an error (red background)
+## Test Discovery
 
-Click the status bar item to quickly restart the server.
+The extension scans for test classes matching `oeunit.testFilePattern`. A method is treated as a test if:
+- its name starts with `test` (case-insensitive), or
+- it is preceded by an `@Test` annotation.
+
+Inherited test methods are also discovered by following the `INHERITS` chain.
 
 ## Commands
 
-The extension provides the following commands (accessible via Command Palette: `Ctrl+Shift+P`):
+All commands are available via the Command Palette (`Ctrl+Shift+P`):
 
-### Server Commands
-- **OEUnit: Start Server** - Start the persistent test server
-- **OEUnit: Stop Server** - Gracefully stop the persistent test server
-- **OEUnit: Restart Server** - Restart the persistent test server
-- **OEUnit: Kill Server** - Force-kill the server process immediately (use when Stop Server hangs)
-- **OEUnit: Ping Server** - Send PING to server to verify it's responding
-
-### Test Commands
-- Tests are run through the native VS Code Testing view (beaker icon in the Activity Bar)
-- Click the play button next to any test file or method to run it
-- Use the "Run All Tests" button in the Testing view toolbar
-
-## How It Works
-
-1. **Extension activates** when workspace contains `.cls` or `.p` files
-2. **Server starts automatically** using configured OpenEdge runtime
-3. **Server listens** on configured port for test requests
-4. **Tests discovered** by scanning for files matching the pattern
-5. **Running a test** sends request to server via TCP socket with JSON message
-6. **Server executes** test and returns results via JSON response
-7. **Extension parses** JSON and updates test results in UI
+| Command | Description |
+|---|---|
+| `OEUnit: Start Server` | Start the persistent test server |
+| `OEUnit: Stop Server` | Gracefully stop the test server |
+| `OEUnit: Restart Server` | Stop then start the test server |
+| `OEUnit: Kill Server` | Force-kill the server process |
+| `OEUnit: Ping Server` | Verify the server is responding |
+| `OEUnit: Add Project Folder…` | Add a folder to `oeunit.projectPaths` via a folder picker |
+| `OEUnit: Start/Stop/Restart All Servers` | Bulk operations for multi-project mode |
 
 ## Troubleshooting
 
-### Server Won't Start
+**Server won't start**
+- Check the **OEUnit Server** output channel for the error.
+- Verify `oeunit.exec` and `oeunit.oeargs` are set.
+- Confirm `openedge-project.json` contains a valid `oeversion` matching a configured runtime.
 
-Check the **Developer Tools Console** (Help > Toggle Developer Tools) for detailed logs:
-- Verify all required settings are configured (`oeunit.exec`, `oeunit.oeargs`)
-- Ensure `openedge-project.json` exists with valid `oeversion` and OEUnit in the `buildPath`
-- Check that the OpenEdge runtime is configured in `abl.configuration.runtimes`
-- Verify OEUnit library is in PROPATH (either via `buildPath` or INI file)
-- Review the **OEUnit Server** output channel for startup errors
+**OEUnit classes not found at runtime (PROPATH error)**
+- The PROPATH is not derived from `openedge-project.json`. Pass it via `-pf` or `-ini` in `oeunit.oeargs`.
 
-### Tests Not Appearing
+**Tests not appearing**
+- Ensure test files match `oeunit.testFilePattern`.
+- Confirm test methods start with `test` or have `@Test`.
+- Use the refresh button in the Testing view.
 
-- Check that your test files match the configured `oeunit.testFilePattern`
-- Verify the files contain test methods (methods starting with "test" or with `@Test` annotation)
-- Click the refresh button (🔄) in the Testing view
-
-### Tests Fail with "Server is not running"
-
-- On the **first test run**, the server will start automatically if it has never been started in the current session
-- If the server was previously running but has since stopped, use **OEUnit: Start Server** to restart it
-- Check the status bar - server should show "Running" status
-- Use **OEUnit: Ping Server** command to verify server is responding
-- If the server appears stuck, use **OEUnit: Kill Server** to force-kill it, then start it again
-- Review the **OEUnit Server** output channel for errors
-
-### Configuration Issues
-
-- Ensure OEUnit library is in PROPATH (via `buildPath` in `openedge-project.json` or INI file)
-- Check that database connection strings in `openedge-project.json` are valid
-- Verify `oeunit.oeargs` are properly formatted
-
-### Port Conflicts
-
-If port 5555 is already in use, change `oeunit.port` to a different value and restart the server.
-
-### Watch Mode
-
-For development with automatic recompilation:
-```powershell
-npm run watch
-```
-
-Press `F5` to launch the Extension Development Host.
-
-## Limitations
-
-None currently known. Individual test methods can now be run independently.
+**Port conflict**
+- Increase `oeunit.port` or set an explicit per-folder port in `.code-workspace`.
 
 ## License
 
-This extension is provided as-is for local development use.
-
-## Support
-
-For issues or questions, please contact your development team.
+Provided as-is for local development use.
