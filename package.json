@@ -2,7 +2,7 @@
   "name": "abl-oeunit-test-explorer",
   "displayName": "OpenEdge ABL OEUnit Test Explorer",
   "description": "Run and explore OpenEdge ABL unit tests using OEUnit",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
@@ -66,6 +66,11 @@
         "command": "oeunit.runTestFromChat",
         "title": "OEUnit: Run Test (from Chat)",
         "category": "OEUnit"
+      },
+      {
+        "command": "oeunit.exportResults",
+        "title": "OEUnit: Export Test Results…",
+        "category": "OEUnit"
       }
     ],
     "languageModelTools": [
@@ -73,6 +78,8 @@
         "name": "oeunit_runTest",
         "tags": ["testing", "abl", "oeunit", "openedge"],
         "displayName": "Run OEUnit Test",
+        "toolReferenceName": "oeunit_runTest",
+        "userDescription": "Run an OEUnit test file or single test method on an OpenEdge ABL project.",
         "modelDescription": "Run an OEUnit test file (.cls) on the configured OpenEdge ABL project. Provide an absolute path to the .cls file. Optionally provide a testMethod name to run a single test method. Returns JSON with Status, Summary (Total/Failures/Errors/Skipped/DurationMs) and a TestCases array.",
         "canBeReferencedInPrompt": true,
         "inputSchema": {
@@ -94,6 +101,8 @@
         "name": "oeunit_runFolder",
         "tags": ["testing", "abl", "oeunit", "openedge"],
         "displayName": "Run OEUnit Tests in Folder",
+        "toolReferenceName": "oeunit_runFolder",
+        "userDescription": "Discover and run all OEUnit test files inside a folder on an OpenEdge ABL project.",
         "modelDescription": "Discover and run all OEUnit test files (.cls files containing @Test methods) inside an absolute folder path. Returns aggregated results across all discovered test files with a per-file breakdown.",
         "canBeReferencedInPrompt": true,
         "inputSchema": {
@@ -105,6 +114,25 @@
             }
           },
           "required": ["folder"]
+        }
+      },
+      {
+        "name": "oeunit_getLastResults",
+        "tags": ["testing", "abl", "oeunit", "openedge"],
+        "displayName": "Get Last OEUnit Results",
+        "toolReferenceName": "oeunit_getLastResults",
+        "userDescription": "Retrieve the cached results from the most recent OEUnit test run(s) without re-running tests.",
+        "modelDescription": "Returns cached test results from the last OEUnit run(s). If 'file' is provided, returns results for that specific .cls file. Otherwise returns results for all recently run files. Results include Status, Summary and TestCases array identical to oeunit_runTest output. Useful for analysing or exporting results after running tests from the Test Explorer UI.",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string",
+              "description": "Absolute path to a specific .cls test file to retrieve cached results for. Omit to get results for all recently run files."
+            }
+          },
+          "required": []
         }
       }
     ],
