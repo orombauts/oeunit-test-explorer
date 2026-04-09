@@ -2,7 +2,7 @@
   "name": "abl-oeunit-test-explorer",
   "displayName": "OpenEdge ABL OEUnit Test Explorer",
   "description": "Run and explore OpenEdge ABL unit tests using OEUnit",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
@@ -61,6 +61,51 @@
         "command": "oeunit.addProjectPath",
         "title": "OEUnit: Add Project Folder…",
         "category": "OEUnit"
+      },
+      {
+        "command": "oeunit.runTestFromChat",
+        "title": "OEUnit: Run Test (from Chat)",
+        "category": "OEUnit"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "oeunit_runTest",
+        "tags": ["testing", "abl", "oeunit", "openedge"],
+        "displayName": "Run OEUnit Test",
+        "modelDescription": "Run an OEUnit test file (.cls) on the configured OpenEdge ABL project. Provide an absolute path to the .cls file. Optionally provide a testMethod name to run a single test method. Returns JSON with Status, Summary (Total/Failures/Errors/Skipped/DurationMs) and a TestCases array.",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "testFile": {
+              "type": "string",
+              "description": "Absolute path to the .cls test file to run"
+            },
+            "testMethod": {
+              "type": "string",
+              "description": "Name of a specific test method to run. Omit to run all test methods in the file."
+            }
+          },
+          "required": ["testFile"]
+        }
+      },
+      {
+        "name": "oeunit_runFolder",
+        "tags": ["testing", "abl", "oeunit", "openedge"],
+        "displayName": "Run OEUnit Tests in Folder",
+        "modelDescription": "Discover and run all OEUnit test files (.cls files containing @Test methods) inside an absolute folder path. Returns aggregated results across all discovered test files with a per-file breakdown.",
+        "canBeReferencedInPrompt": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "folder": {
+              "type": "string",
+              "description": "Absolute path to the folder to search for test .cls files"
+            }
+          },
+          "required": ["folder"]
+        }
       }
     ],
     "configuration": {

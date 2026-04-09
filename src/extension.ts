@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
-import { existsSync, readFileSync } from 'fs';
-import { basename, delimiter, isAbsolute, join, normalize, relative, sep } from 'path';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { basename, dirname, delimiter, extname, isAbsolute, join, normalize, relative, sep } from 'path';
 import { createServer } from 'net';
 import { OEUnitTestRunner } from './testRunner';
 import { OEUnitServerManager } from './serverManager';
 import { ProjectDiscovery, ProjectContext } from './projectDiscovery';
 import { isAbstractClass, extractAllTestMethods } from './classParser';
+import { stripJsonComments } from './utils';
 
 // --- Multi-project state ---
 // serverManagers holds one OEUnitServerManager per project, keyed by ProjectContext.id
@@ -31,6 +32,12 @@ let projectDiscovery: ProjectDiscovery;
 const testItemProjects = new Map<string, string>();
 
 let configChangeTimeout: NodeJS.Timeout | undefined;
+
+// Cache of the most recent test run result per file path (absolute).
+// Populated by both LM-tool invocations and Test Explorer runs so that
+// oeunit_getLastResults and oeunit.exportResults work regardless of how
+// the tests were triggered.
+const lastRunResults = new Map<string, any>();
 
 /**
  * Returns true when the given TCP port is not bound on 127.0.0.1.
@@ -65,6 +72,117 @@ async function findAvailablePort(
     return undefined;
 }
 
+/**
+ * Core test-run logic shared by the command handler and the LM tools.
+ * Resolves the project from the file path, checks the server, and calls runTest.
+ */
+async function execRunTest(
+    testFile: string,
+    testMethod?: string,
+    projectId?: string
+): Promise<any> {
+    const normalizedFile = testFile.toLowerCase();
+    let resolvedProjectId: string | undefined = projectId;
+    if (!resolvedProjectId) {
+        const contexts = projectDiscovery ? projectDiscovery.getContexts() : [];
+        for (const ctx of contexts) {
+            if (normalizedFile.startsWith(ctx.rootUri.fsPath.toLowerCase())) {
+                resolvedProjectId = ctx.id;
+                break;
+            }
+        }
+    }
+    if (!resolvedProjectId) {
+        return { Status: 'ERROR', Reply: `Could not determine project for file: ${testFile}` };
+    }
+    const manager = serverManagers.get(resolvedProjectId);
+    if (!manager || !manager.isServerRunning()) {
+        return { Status: 'ERROR', Reply: `OEUnit server is not running for project ${basename(resolvedProjectId)}. Start it first with "OEUnit: Start Server".` };
+    }
+    const config = vscode.workspace.getConfiguration('oeunit', vscode.Uri.file(resolvedProjectId));
+    const logLevel = config.get<string>('loglevel') ?? 'error';
+    try {
+        const result = await manager.runTest(testFile, testMethod, logLevel);
+        if (result.Status === 'COMPLETED') {
+            lastRunResults.set(testFile, result);
+        }
+        return result;
+    } catch (error: any) {
+        return { Status: 'ERROR', Reply: `Test execution failed: ${error.message || String(error)}` };
+    }
+}
+
+/**
+ * Discovers all OEUnit test files (.cls with @Test methods) under the given
+ * folder and runs each sequentially, returning aggregated results.
+ */
+async function execRunFolder(folder: string): Promise<any> {
+    const folderUri = vscode.Uri.file(folder);
+    const contexts = projectDiscovery ? projectDiscovery.getContexts() : [];
+    const projectCtx = contexts.find(ctx =>
+        folder.toLowerCase().startsWith(ctx.rootUri.fsPath.toLowerCase())
+    );
+    if (!projectCtx) {
+        return { Status: 'ERROR', Reply: `Could not determine project for folder: ${folder}` };
+    }
+    const manager = serverManagers.get(projectCtx.id);
+    if (!manager || !manager.isServerRunning()) {
+        return { Status: 'ERROR', Reply: `OEUnit server is not running for project ${basename(projectCtx.id)}. Start it first with "OEUnit: Start Server".` };
+    }
+
+    // Build a per-project classFileMap for INHERITS resolution (same as discoverTests)
+    const projectClassFileMap = new Map<string, string>();
+    const allCls = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(projectCtx.rootUri, '**/*.cls'),
+        '**/node_modules/**'
+    );
+    for (const f of allCls) {
+        projectClassFileMap.set(f.fsPath.replace(/\\/g, '/').toLowerCase(), f.fsPath);
+    }
+
+    // Find .cls files strictly under the given folder
+    const clsFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(folderUri, '**/*.cls'),
+        '**/node_modules/**'
+    );
+
+    // Filter to files that actually contain test methods
+    const testFiles: vscode.Uri[] = [];
+    for (const file of clsFiles) {
+        try {
+            const content = readFileSync(file.fsPath, 'utf-8');
+            if (!isAbstractClass(content) && extractAllTestMethods(content, file, projectClassFileMap).length > 0) {
+                testFiles.push(file);
+            }
+        } catch { /* skip unreadable files */ }
+    }
+
+    if (testFiles.length === 0) {
+        return { Status: 'COMPLETED', Summary: { Total: 0, Failures: 0, Errors: 0, Skipped: 0, DurationMs: 0 }, Files: [] };
+    }
+
+    const fileResults: any[] = [];
+    let totTotal = 0, totFailures = 0, totErrors = 0, totSkipped = 0, totDuration = 0;
+
+    for (const file of testFiles) {
+        const response = await execRunTest(file.fsPath, undefined, projectCtx.id);
+        if (response.Status === 'COMPLETED' && response.Summary) {
+            totTotal    += response.Summary.Total    ?? 0;
+            totFailures += response.Summary.Failures ?? 0;
+            totErrors   += response.Summary.Errors   ?? 0;
+            totSkipped  += response.Summary.Skipped  ?? 0;
+            totDuration += response.Summary.DurationMs ?? 0;
+        }
+        fileResults.push({ File: basename(file.fsPath), FilePath: file.fsPath, ...response });
+    }
+
+    return {
+        Status: 'COMPLETED',
+        Summary: { Total: totTotal, Failures: totFailures, Errors: totErrors, Skipped: totSkipped, DurationMs: totDuration },
+        Files: fileResults
+    };
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     console.log('OEUnit Test Explorer extension is now active');
 
@@ -93,6 +211,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     testRunner = new OEUnitTestRunner();
     testRunner.setExtensionVersion(context.extension.packageJSON.version);
+    testRunner.setOnRunComplete((filePath, result) => lastRunResults.set(filePath, result));
     
     // Create output channel once and reuse it
     serverOutputChannel = vscode.window.createOutputChannel('OEUnit Server');
@@ -142,7 +261,21 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-    
+
+    // Internal command: starts the server for the project identified by `projectId`
+    // without showing a project picker. Used by testRunner.ts when the server
+    // is not yet running and the project is already known from the test file path.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('oeunit.startServerForProject', async (projectId: string) => {
+            const ctx = projectDiscovery?.getContexts().find(c => c.id === projectId);
+            if (ctx) {
+                await startServer(testRunner, context, ctx);
+            } else {
+                vscode.window.showWarningMessage(`OEUnit: No project found for id "${basename(projectId)}".`);
+            }
+        })
+    );
+
     context.subscriptions.push(
         vscode.commands.registerCommand('oeunit.pingServer', async () => {
             const ctx = await pickProjectContext('Ping Server');
@@ -241,6 +374,156 @@ export async function activate(context: vscode.ExtensionContext) {
             await cfg.update('projectPaths', [...current, ...toAdd], vscode.ConfigurationTarget.Workspace);
             vscode.window.showInformationMessage(`OEUnit: Added ${toAdd.length} project folder(s). Refreshing…`);
             await projectDiscovery.refresh();
+        })
+    );
+
+    // oeunit.runTestFromChat — headless test execution for Copilot Chat / agents.
+    // Accepts { testFile, testMethod?, projectId?, folder? } OR a plain string:
+    //   - "path/to/Test.cls"             → run whole file
+    //   - "path/to/Test.cls::MethodName" → run single method
+    //   - "path/to/folder"               → run all test files in folder
+    // Returns the raw TestResponse JSON so the caller can inspect results
+    // programmatically without a VS Code TestRun UI.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('oeunit.runTestFromChat', async (args?: { testFile?: string; testMethod?: string; projectId?: string; folder?: string } | string) => {
+            // Normalise plain-string argument
+            if (typeof args === 'string') {
+                const sepIdx = args.indexOf('::');
+                if (sepIdx !== -1) {
+                    args = { testFile: args.slice(0, sepIdx), testMethod: args.slice(sepIdx + 2) };
+                } else if (!args.toLowerCase().endsWith('.cls')) {
+                    args = { folder: args };
+                } else {
+                    args = { testFile: args };
+                }
+            }
+            if (!args) {
+                return { Status: 'ERROR', Reply: 'Missing argument' };
+            }
+            if ('folder' in args && args.folder) {
+                return await execRunFolder(normalize(args.folder));
+            }
+            if (!args.testFile) {
+                return { Status: 'ERROR', Reply: 'Missing required argument: testFile or folder' };
+            }
+            return await execRunTest(normalize(args.testFile), args.testMethod, args.projectId);
+        })
+    );
+
+    // Register language model tools so Copilot Chat can invoke them directly
+    // without requiring the run_vscode_command indirection.
+    context.subscriptions.push(
+        vscode.lm.registerTool('oeunit_runTest', {
+            async invoke(options: vscode.LanguageModelToolInvocationOptions<{ testFile: string; testMethod?: string }>, _token: vscode.CancellationToken) {
+                const { testFile, testMethod } = options.input;
+                const result = await execRunTest(normalize(testFile), testMethod);
+                // Report results to the VS Code Test Results view.
+                const testItem = findTestItemByFilePath(controller.items, normalize(testFile));
+                if (testItem) {
+                    reportRunResultToTestRun(controller, result, testItem, testMethod);
+                }
+                return new vscode.LanguageModelToolResult([
+                    new vscode.LanguageModelTextPart(JSON.stringify(result, null, 2))
+                ]);
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.lm.registerTool('oeunit_getLastResults', {
+            async invoke(options: vscode.LanguageModelToolInvocationOptions<{ file?: string }>, _token: vscode.CancellationToken) {
+                const { file } = options.input ?? {};
+                let data: any;
+                if (file) {
+                    const normalized = normalize(file);
+                    data = lastRunResults.get(normalized)
+                        ?? lastRunResults.get(normalized.toLowerCase())
+                        ?? null;
+                    if (!data) {
+                        data = { Status: 'ERROR', Reply: `No cached results for file: ${file}` };
+                    }
+                } else {
+                    if (lastRunResults.size === 0) {
+                        data = { Status: 'ERROR', Reply: 'No test results cached yet. Run tests first.' };
+                    } else {
+                        const entries: Record<string, any> = {};
+                        lastRunResults.forEach((result, filePath) => {
+                            entries[filePath] = result;
+                        });
+                        data = entries;
+                    }
+                }
+                return new vscode.LanguageModelToolResult([
+                    new vscode.LanguageModelTextPart(JSON.stringify(data, null, 2))
+                ]);
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('oeunit.exportResults', async () => {
+            if (lastRunResults.size === 0) {
+                vscode.window.showWarningMessage('OEUnit: No test results to export. Run tests first.');
+                return;
+            }
+            const formatPick = await vscode.window.showQuickPick(
+                [
+                    { label: 'JUnit XML', description: 'Standard XML format — compatible with CI tools (Jenkins, Azure DevOps, GitHub Actions)', value: 'junit' as const },
+                    { label: 'JSON', description: 'Raw result JSON — Copilot-friendly, easy to process programmatically', value: 'json' as const }
+                ],
+                { title: 'OEUnit: Export Results — choose format', placeHolder: 'Select export format' }
+            );
+            if (!formatPick) { return; }
+
+            const defaultName = `oeunit-results.${formatPick.value === 'junit' ? 'xml' : 'json'}`;
+            const defaultUri = vscode.workspace.workspaceFolders?.[0]
+                ? vscode.Uri.file(join(vscode.workspace.workspaceFolders[0].uri.fsPath, defaultName))
+                : undefined;
+
+            const saveUri = await vscode.window.showSaveDialog({
+                defaultUri,
+                filters: formatPick.value === 'junit'
+                    ? { 'JUnit XML': ['xml'] }
+                    : { 'JSON': ['json'] },
+                saveLabel: 'Export'
+            });
+            if (!saveUri) { return; }
+
+            const entries = Array.from(lastRunResults.entries()).map(([filePath, result]) => ({ filePath, result }));
+            const content = formatPick.value === 'junit'
+                ? buildJUnitXml(entries)
+                : JSON.stringify(Object.fromEntries(lastRunResults), null, 2);
+
+            try {
+                writeFileSync(saveUri.fsPath, content, 'utf-8');
+                vscode.window.showInformationMessage(`OEUnit: Results exported to ${saveUri.fsPath}`, 'Open File')
+                    .then(sel => { if (sel === 'Open File') { vscode.commands.executeCommand('vscode.open', saveUri); } });
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`OEUnit: Export failed — ${err.message || String(err)}`);
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.lm.registerTool('oeunit_runFolder', {
+            async invoke(options: vscode.LanguageModelToolInvocationOptions<{ folder: string }>, _token: vscode.CancellationToken) {
+                const { folder } = options.input;
+                const result = await execRunFolder(normalize(folder));
+                // Report per-file results to the VS Code Test Results view.
+                if (result.Files && Array.isArray(result.Files)) {
+                    for (const fileResult of result.Files) {
+                        if (fileResult.FilePath) {
+                            const testItem = findTestItemByFilePath(controller.items, fileResult.FilePath);
+                            if (testItem) {
+                                reportRunResultToTestRun(controller, fileResult, testItem);
+                            }
+                        }
+                    }
+                }
+                return new vscode.LanguageModelToolResult([
+                    new vscode.LanguageModelTextPart(JSON.stringify(result, null, 2))
+                ]);
+            }
         })
     );
 
@@ -431,6 +714,179 @@ function collectTests(item: vscode.TestItem, queue: vscode.TestItem[]): void {
     }
     // Recursively collect from children (folders first, then files within)
     item.children.forEach(child => collectTests(child, queue));
+}
+
+/**
+ * Recursively searches controller.items for a TestItem whose URI matches filePath.
+ */
+function findTestItemByFilePath(items: vscode.TestItemCollection, filePath: string): vscode.TestItem | undefined {
+    const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
+    let found: vscode.TestItem | undefined;
+    items.forEach(item => {
+        if (found) { return; }
+        if (item.uri && item.uri.fsPath.replace(/\\/g, '/').toLowerCase() === normalizedPath) {
+            found = item;
+            return;
+        }
+        if (item.children.size > 0) {
+            found = findTestItemByFilePath(item.children, filePath);
+        }
+    });
+    return found;
+}
+
+/**
+ * Builds a JUnit-compatible XML string from an array of {filePath, result} entries.
+ * The output is accepted by Jenkins, Azure DevOps, GitHub Actions, and most CI tools.
+ */
+function buildJUnitXml(entries: Array<{ filePath: string; result: any }>): string {
+    const esc = (s: string) => s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+
+    let totalTests = 0, totalFailures = 0, totalErrors = 0, totalSkipped = 0, totalMs = 0;
+    const suites: string[] = [];
+
+    for (const { filePath, result } of entries) {
+        if (!result.Summary || !result.TestCases) { continue; }
+        const s = result.Summary;
+        const className = esc(basename(filePath, extname(filePath)));
+        const suiteName = esc(basename(filePath));
+        const timeS = (s.DurationMs / 1000).toFixed(3);
+        totalTests += s.Total; totalFailures += s.Failures;
+        totalErrors += s.Errors; totalSkipped += s.Skipped; totalMs += s.DurationMs;
+
+        const cases = result.TestCases.map((tc: any) => {
+            const tcTime = (tc.DurationMs / 1000).toFixed(3);
+            const name = esc(tc.Case);
+            if (tc.Status === 'Passed') {
+                return `    <testcase name="${name}" classname="${className}" time="${tcTime}"/>`;
+            } else if (tc.Status === 'Failed') {
+                const msg = esc(tc.Failure || 'Test failed');
+                const body = tc.ErrorStack?.length ? esc(tc.ErrorStack.join('\n')) : msg;
+                return `    <testcase name="${name}" classname="${className}" time="${tcTime}">\n      <failure message="${msg}">${body}</failure>\n    </testcase>`;
+            } else if (tc.Status === 'Skipped') {
+                return `    <testcase name="${name}" classname="${className}" time="${tcTime}">\n      <skipped/>\n    </testcase>`;
+            }
+            return `    <testcase name="${name}" classname="${className}" time="${tcTime}"/>`;
+        }).join('\n');
+
+        suites.push(`  <testsuite name="${suiteName}" tests="${s.Total}" failures="${s.Failures}" errors="${s.Errors}" skipped="${s.Skipped}" time="${timeS}">\n${cases}\n  </testsuite>`);
+    }
+
+    const totalTimeS = (totalMs / 1000).toFixed(3);
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites name="OEUnit" tests="${totalTests}" failures="${totalFailures}" errors="${totalErrors}" skipped="${totalSkipped}" time="${totalTimeS}">\n${suites.join('\n')}\n</testsuites>\n`;
+}
+
+/**
+ * Reports a single test case result to a TestRun.
+ */
+function reportTestCaseToRun(
+    run: vscode.TestRun,
+    item: vscode.TestItem,
+    tc: { Status: string; Failure?: string; DurationMs?: number; ErrorStack?: string[] }
+): void {
+    switch (tc.Status) {
+        case 'Passed':
+            run.appendOutput(`  ✓ ${item.label} (${tc.DurationMs ?? 0}ms)\r\n`, undefined, item);
+            run.passed(item, tc.DurationMs);
+            break;
+        case 'Failed': {
+            const msg = tc.Failure || 'Test failed';
+            run.appendOutput(`  ✗ ${item.label}: ${msg} (${tc.DurationMs ?? 0}ms)\r\n`, undefined, item);
+            if (tc.ErrorStack && tc.ErrorStack.length > 0) {
+                run.appendOutput(tc.ErrorStack.map(l => `    ${l}`).join('\r\n') + '\r\n', undefined, item);
+            }
+            run.failed(item, new vscode.TestMessage(msg), tc.DurationMs);
+            break;
+        }
+        case 'Skipped':
+            run.appendOutput(`  - ${item.label} (skipped, ${tc.DurationMs ?? 0}ms)\r\n`, undefined, item);
+            run.skipped(item);
+            break;
+        default:
+            run.appendOutput(`  ? ${item.label} (status: ${tc.Status})\r\n`, undefined, item);
+            run.errored(item, new vscode.TestMessage(`Unexpected status: ${tc.Status}`), tc.DurationMs);
+    }
+}
+
+/**
+ * Creates a VS Code TestRun for a given TestItem and reports the JSON result
+ * returned by execRunTest to it, so results appear in the Test Results view.
+ * Safe to call even if the TestItem has no children yet.
+ */
+function reportRunResultToTestRun(
+    controller: vscode.TestController,
+    result: any,
+    testItem: vscode.TestItem,
+    methodName?: string
+): void {
+    // Build the include list: a specific method child if one was requested, otherwise the file item.
+    const includeItems: vscode.TestItem[] = [];
+    if (methodName) {
+        testItem.children.forEach(c => {
+            if (c.label === methodName || c.id.endsWith(`::${methodName}`)) {
+                includeItems.push(c);
+            }
+        });
+    }
+    if (includeItems.length === 0) {
+        includeItems.push(testItem);
+    }
+
+    const run = controller.createTestRun(new vscode.TestRunRequest(includeItems), undefined, true);
+    try {
+        if (result.Status === 'ERROR') {
+            const msg = new vscode.TestMessage(result.Reply || 'Unknown error');
+            includeItems.forEach(i => {
+                run.appendOutput(`ERROR: ${result.Reply || 'Unknown error'}\r\n`, undefined, i);
+                run.failed(i, msg);
+            });
+            return;
+        }
+
+        if (!result.TestCases || result.TestCases.length === 0) {
+            includeItems.forEach(i => run.skipped(i));
+            return;
+        }
+
+        // Report individual method items when the file TestItem has children.
+        if (testItem.children.size > 0) {
+            result.TestCases.forEach((tc: any) => {
+                let childItem: vscode.TestItem | undefined;
+                testItem.children.forEach(c => {
+                    if (c.label === tc.Case || c.id.endsWith(`::${tc.Case}`)) {
+                        childItem = c;
+                    }
+                });
+                if (childItem) {
+                    reportTestCaseToRun(run, childItem, tc);
+                }
+            });
+            // Set the file-level state only when running all methods (not a single method).
+            if (!methodName && result.Summary) {
+                const passed = result.Summary.Total - result.Summary.Failures - result.Summary.Errors - result.Summary.Skipped;
+                run.appendOutput(`${'─'.repeat(60)}\r\n`, undefined, testItem);
+                run.appendOutput(`Total: ${result.Summary.Total}  Passed: ${passed}  Failed: ${result.Summary.Failures}  Errors: ${result.Summary.Errors}  Skipped: ${result.Summary.Skipped}  (${result.Summary.DurationMs}ms)\r\n`, undefined, testItem);
+                if (result.Summary.Failures > 0 || result.Summary.Errors > 0) {
+                    run.failed(testItem,
+                        new vscode.TestMessage(`${result.Summary.Failures} failure(s), ${result.Summary.Errors} error(s)`),
+                        result.Summary.DurationMs);
+                } else {
+                    run.passed(testItem, result.Summary.DurationMs);
+                }
+            }
+        } else {
+            // No children yet (discovery may not have run) — report on the item directly.
+            const tc = result.TestCases.find((t: any) => !methodName || t.Case === methodName)
+                ?? result.TestCases[0];
+            reportTestCaseToRun(run, includeItems[0], tc);
+        }
+    } finally {
+        run.end();
+    }
 }
 
 /**
@@ -801,7 +1257,7 @@ async function startPersistentServer(
 
         let projectJson: any;
         try {
-            projectJson = JSON.parse(fileContent);
+            projectJson = JSON.parse(stripJsonComments(fileContent));
         } catch (parseError) {
             const errorMsg = `OEUnit server cannot start. Invalid JSON in openedge-project.json: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
             serverOutputChannel.appendLine(`\n[ERROR] ${errorMsg}`);
