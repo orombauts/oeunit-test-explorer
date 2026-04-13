@@ -1,6 +1,7 @@
 .vscode/**
 .vscode-test/**
 .copilot/**
+.github/**
 src/**
 .gitignore
 .eslintrc*
