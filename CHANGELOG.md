@@ -1,5 +1,45 @@
 # Change Log
 
+## [0.4.0] - 2026-04-09
+
+### Added
+- **Copilot Chat integration — `#oeunit_runTest` tool**: run a single `.cls` test file
+  or a specific test method directly from Copilot Chat. Returns structured JSON
+  (Status, Summary, TestCases) visible in the chat response.
+- **Copilot Chat integration — `#oeunit_runFolder` tool**: discover and run all OEUnit
+  test files under a given folder from Copilot Chat. Returns per-file and aggregate results.
+- **Copilot Chat integration — `#oeunit_getLastResults` tool**: retrieve cached results
+  from the most recent run (Test Explorer *or* chat-triggered) without re-running tests.
+  Useful for analysis, summarisation, and export workflows.
+- **Test Results view support**: all test runs — whether triggered from the Test Explorer
+  or from Copilot Chat tools — now populate the VS Code **Test Results** panel with
+  per-method pass/fail/skip status and timing, a summary footer, and failure details
+  (scoped so clicking a specific method shows only its output).
+- **`OEUnit: Export Test Results…` command**: saves the most recent cached results to
+  either **JUnit XML** (accepted by Jenkins, Azure DevOps, GitHub Actions) or **JSON**
+  (Copilot-friendly). Accessible via the Command Palette.
+- **`OEUnit: Run Test (from Chat)` command**: headless test execution for agents and
+  script-based automation; accepts `{ testFile, testMethod?, folder? }` or a plain string
+  (`"path/to/Test.cls"`, `"path/to/Test.cls::Method"`, `"path/to/folder"`).
+- **`oeunit.startServerForProject` internal command**: starts the server for an already-
+  known project without showing the project picker QuickPick. Used internally so the
+  first Test Explorer run auto-starts the correct server silently.
+- **JSONC support for `openedge-project.json`**: `//` line comments and `/* */` block
+  comments in `openedge-project.json` are now stripped before parsing. The ABL Language
+  Server already supports JSONC for this file; the extension now matches that behaviour.
+  A `stripJsonComments()` helper was added to `utils.ts` and is applied at all parse sites
+  (`extension.ts` startup path and `projectDiscovery.ts`).
+
+### Fixed
+- First Test Explorer run no longer shows the project picker QuickPick when the server
+  has not yet started; the correct project is resolved automatically from the test file
+  path and the server is started silently.
+
+### Changed
+- Tool registration entries (`toolReferenceName`, `userDescription`, `modelDescription`)
+  added to `package.json` so all three LM tools appear in the VS Code
+  **Configure Tools** picker and can be used as `#tool` references in chat.
+
 ## [0.3.0] - 2026-03-20
 
 > All changes are fully backwards-compatible with existing single-project setups.

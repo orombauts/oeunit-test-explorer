@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { basename, join, normalize, sep } from 'path';
 import { existsSync, readFileSync } from 'fs';
+import { stripJsonComments } from './utils';
 
 export interface ProjectContext {
     id: string;
@@ -118,7 +119,7 @@ export class ProjectDiscovery {
     private safeReadProject(file: vscode.Uri): any | null {
         try {
             const content = readFileSync(file.fsPath, 'utf-8');
-            return JSON.parse(content);
+            return JSON.parse(stripJsonComments(content));
         } catch (error) {
             console.warn('[OEUnit] Failed to parse openedge-project.json:', file.fsPath, error);
             return null;
