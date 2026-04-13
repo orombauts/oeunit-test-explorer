@@ -35,19 +35,7 @@ The extension reads `openedge-project.json` from your project root. Two fields a
 
 The extension does **not** construct a PROPATH from `openedge-project.json`. The full PROPATH — including the OEUnit library — must be supplied via `oeunit.oeargs`.
 
-The typical approach is a startup parameter file (`-pf`) or an INI file (`-ini`):
-
-```
-"oeunit.oeargs": "-pf C:\\OpenEdge\\startup.pf"
-```
-
-The startup file must include the OEUnit library path in the PROPATH, e.g.:
-
-```
--cpinternal utf-8
--cpstream utf-8
--propath C:\libs\oeunit,C:\myproject\src
-```
+The typical approach is a INI file (`-basekey ini -ininame path/to/myproject.ini`):
 
 ## Settings
 
@@ -96,7 +84,7 @@ All commands are available via the Command Palette (`Ctrl+Shift+P`):
 - Confirm `openedge-project.json` contains a valid `oeversion` matching a configured runtime.
 
 **OEUnit classes not found at runtime (PROPATH error)**
-- The PROPATH is not derived from `openedge-project.json`. Pass it via `-pf` or `-ini` in `oeunit.oeargs`.
+- The PROPATH is not derived from `openedge-project.json`. Pass it via ini arguments in `oeunit.oeargs`.
 
 **Tests not appearing**
 - Ensure test files match `oeunit.testFilePattern`.
