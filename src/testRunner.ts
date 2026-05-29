@@ -245,11 +245,23 @@ export class OEUnitTestRunner {
                 break;
 
             case 'Failed': {
-                const failureMsg = testCase.Failure || 'Test failed';
-                const errorMsg = new vscode.TestMessage(failureMsg);
+                const hasStack = testCase.ErrorStack && testCase.ErrorStack.length > 0;
+                const stackText = hasStack ? testCase.ErrorStack!.join('\n') : '';
+                let messageText: string;
+                if (!testCase.Failure && hasStack) {
+                    // Lifecycle error (e.g. BeforeAllTests threw): Failure is empty but a stack
+                    // was captured. Surface a clear headline and attach the full stack as markdown.
+                    messageText = `Test class error (see stack trace)\n\n\`\`\`\n${stackText}\n\`\`\``;
+                } else if (testCase.Failure && hasStack) {
+                    messageText = `${testCase.Failure}\n${stackText}`;
+                } else {
+                    messageText = testCase.Failure || 'Test failed';
+                }
+                const failureMsg = testCase.Failure || (hasStack ? 'Test class error' : 'Test failed');
+                const errorMsg = new vscode.TestMessage(messageText);
                 run.appendOutput(`  ✗ ${testCase.Case}: ${failureMsg} (${testCase.DurationMs}ms)\r\n`, undefined, testItem);
-                if (testCase.ErrorStack && testCase.ErrorStack.length > 0) {
-                    run.appendOutput(testCase.ErrorStack.map(l => `    ${l}`).join('\r\n') + '\r\n', undefined, testItem);
+                if (hasStack) {
+                    run.appendOutput(testCase.ErrorStack!.map(l => `    ${l}`).join('\r\n') + '\r\n', undefined, testItem);
                 }
                 this.outputChannel.appendLine(`   -${testCase.Case}: ${failureMsg} (${testCase.DurationMs}ms)`);
                 run.failed(testItem, errorMsg, testCase.DurationMs);

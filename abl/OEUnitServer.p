@@ -19,7 +19,7 @@ USING OEUnit.Util.Errors FROM PROPATH.
  *   LogLevel values: info (all messages), warning (warning+error), error (error only)
  *   Timeout: socket timeout in seconds (default: 60)
  */
- 
+
 BLOCK-LEVEL ON ERROR UNDO, THROW.
 
 DEFINE VARIABLE PortNumber AS INTEGER NO-UNDO.
@@ -133,7 +133,7 @@ QUIT.
 PROCEDURE CreateDatabaseAliasesFromParam:
 
     DEFINE INPUT PARAMETER AliasParam AS CHARACTER NO-UNDO.
-    
+
     DEFINE VARIABLE DbNameEntry AS CHARACTER NO-UNDO.
     DEFINE VARIABLE DbAliases AS CHARACTER NO-UNDO.
 
@@ -144,11 +144,11 @@ PROCEDURE CreateDatabaseAliasesFromParam:
     THEN DO:
         RETURN.
     END.
-    
+
     ASSIGN
         DbNameEntry = ENTRY(1, AliasParam, ":":U)
         DbAliases = ENTRY(2, AliasParam, ":":U).
-    
+
     IF DbNameEntry <> "":U AND DbAliases <> "":U
     THEN DO:
         LogInfo(SUBSTITUTE("Creating aliases for &1: &2":U, DbNameEntry, DbAliases)).
@@ -167,15 +167,15 @@ PROCEDURE HandleClientConnect:
 
     /* Store client info in private data for logging purposes */
     ASSIGN ClientSocket:PRIVATE-DATA = SUBSTITUTE("&1, &2":U, ClientSocket:REMOTE-HOST, ClientSocket:REMOTE-PORT).
-    
+
     LogInfo(SUBSTITUTE("Connection received from host '&1', port &2":U, ClientSocket:REMOTE-HOST, ClientSocket:REMOTE-PORT)).
 
     ClientSocket:SET-SOCKET-OPTION("SO-RCVTIMEO":U, STRING(TimeoutSeconds)). /* Configurable timeout */
-    
+
     ClientSocket:SET-SOCKET-OPTION("TCP-NODELAY":U, "TRUE":U). /* Reduce Latency */
 
     /* Enable linger, 5 sec timeout - ensuring data is sent before closing the client connection */
-    ClientSocket:SET-SOCKET-OPTION("SO-LINGER":U, "TRUE,5":U). 
+    ClientSocket:SET-SOCKET-OPTION("SO-LINGER":U, "TRUE,5":U).
 
     ClientSocket:SET-READ-RESPONSE-PROCEDURE("HandleClientRead":U, THIS-PROCEDURE).
 
@@ -191,7 +191,7 @@ PROCEDURE HandleClientRead:
 
     DEFINE VARIABLE RequestType AS CHARACTER NO-UNDO.
 
-    DEFINE VARIABLE RequestPtr AS MEMPTR NO-UNDO.    
+    DEFINE VARIABLE RequestPtr AS MEMPTR NO-UNDO.
     DEFINE VARIABLE ResponsePtr AS MEMPTR NO-UNDO.
 
     DEFINE VARIABLE RequestSize AS INT64 NO-UNDO.
@@ -205,7 +205,7 @@ PROCEDURE HandleClientRead:
         DELETE OBJECT SELF.
         RETURN.
     END.
-     
+
     /* Read from the client socket */
     DO ON ERROR UNDO, LEAVE:
         ASSIGN
@@ -217,11 +217,11 @@ PROCEDURE HandleClientRead:
 
         RUN ReadRequest(ClientSocket, OUTPUT RequestPtr, OUTPUT RequestSize).
 
-        IF VALID-HANDLE(ClientSocket) THEN ASSIGN ClientSocket:SENSITIVE = YES.      
+        IF VALID-HANDLE(ClientSocket) THEN ASSIGN ClientSocket:SENSITIVE = YES.
 
-        CATCH e AS Progress.Lang.AppError:            
+        CATCH e AS Progress.Lang.AppError:
             /* Clean up and close client socket on error */
-            LogError(SUBSTITUTE("Error reading request from client (&1): &2":U, 
+            LogError(SUBSTITUTE("Error reading request from client (&1): &2":U,
                 GetClientConnectionInfo(ClientSocket),
                 e:GetMessage(1))).
 
@@ -229,8 +229,8 @@ PROCEDURE HandleClientRead:
             THEN DO:
                 IF ClientSocket:CONNECTED() THEN ClientSocket:DISCONNECT().
                 DELETE OBJECT ClientSocket.
-            END.    
-            RETURN. /* Finito */   
+            END.
+            RETURN. /* Finito */
         END CATCH.
     END.
 
@@ -272,7 +272,7 @@ END PROCEDURE.
 /*****************************************************************************/
 
 PROCEDURE ReadRequest PRIVATE:
-    
+
     DEFINE INPUT PARAMETER ClientSocket AS HANDLE NO-UNDO.
     DEFINE OUTPUT PARAMETER RequestPtr AS MEMPTR NO-UNDO.
     DEFINE OUTPUT PARAMETER RequestSize AS INT64 NO-UNDO.
@@ -284,21 +284,21 @@ PROCEDURE ReadRequest PRIVATE:
     DEFINE VARIABLE ReturnStatus AS LOGICAL NO-UNDO.
 
     /* --------------------------------------------------------------------- */
-    
+
     IF NOT VALID-HANDLE(ClientSocket)
     THEN RUN RaiseError("Client socket handle is not valid":U).
-    
+
     IF NOT ClientSocket:CONNECTED()
     THEN RUN RaiseError("Client socket is not connected":U).
 
     ASSIGN BytesAvailable = ClientSocket:GET-BYTES-AVAILABLE().
-        
-    IF BytesAvailable <= 0 
+
+    IF BytesAvailable <= 0
     THEN RUN RaiseError("No bytes available to read from client socket":U).
     ELSE LogInfo(SUBSTITUTE("Reading &1 bytes from client socket (&2)":U, BytesAvailable, GetClientConnectionInfo(ClientSocket))).
-     
+
     SET-SIZE(RequestPtr) = BytesAvailable + 1.
-    
+
     DO ON ERROR UNDO, LEAVE:
         ASSIGN ReturnStatus = ClientSocket:READ(RequestPtr, 1, BytesAvailable, READ-EXACT-NUM).
 
@@ -314,7 +314,7 @@ PROCEDURE ReadRequest PRIVATE:
     IF RequestSize = 0
     THEN RUN RaiseError("Read time out occured":U).
     ELSE LogInfo(SUBSTITUTE("Read &1 bytes from client (&2)":U, RequestSize, ClientSocket:PRIVATE-DATA)).
-    
+
 END PROCEDURE.
 
 /*****************************************************************************/
@@ -344,7 +344,7 @@ PROCEDURE ParseRequest PRIVATE:
         .
 
     CATCH e AS Progress.Lang.AppError:
-        RUN RaiseError(SUBSTITUTE("Failed to parse request: &1":U, e:GetMessage(1))).  
+        RUN RaiseError(SUBSTITUTE("Failed to parse request: &1":U, e:GetMessage(1))).
     END.
 
 END PROCEDURE.
@@ -365,21 +365,21 @@ PROCEDURE HandleRequest PRIVATE:
         RUN RaiseError("Received JSON request does not contain a valid object":U).
     END.
 
-    ASSIGN RequestType = 
-        IF JsonRequest:Has("RequestType") 
-        THEN JsonRequest:GetCharacter("RequestType":U) 
+    ASSIGN RequestType =
+        IF JsonRequest:Has("RequestType")
+        THEN JsonRequest:GetCharacter("RequestType":U)
         ELSE ?.
 
     CASE RequestType:
         WHEN "PING":U
         THEN RUN HandlePingRequest(OUTPUT ResponsePtr).
-        
+
         WHEN "SHUTDOWN":U
         THEN RUN HandleShutdownRequest(OUTPUT ResponsePtr).
-        
+
         WHEN "TEST":U
         THEN RUN HandleTestRequest(JsonRequest, OUTPUT ResponsePtr).
-        
+
         OTHERWISE DO:
             RUN RaiseError(SUBSTITUTE("Unknown request type: &1":U, RequestType)).
         END.
@@ -427,7 +427,7 @@ PROCEDURE HandleTestRequest:
 
     DEFINE INPUT PARAMETER TestRequest AS JsonObject NO-UNDO.
     DEFINE OUTPUT PARAMETER Response AS MEMPTR NO-UNDO.
-    
+
     DEFINE VARIABLE TestFile AS CHARACTER NO-UNDO.
     DEFINE VARIABLE TestMethod AS CHARACTER NO-UNDO.
     DEFINE VARIABLE LogLevel AS CHARACTER NO-UNDO.
@@ -443,12 +443,12 @@ PROCEDURE HandleTestRequest:
     ASSIGN
         TestFile = IF TestRequest:Has("TestFile") THEN TestRequest:GetCharacter("TestFile":U) ELSE ?
         TestMethod = IF TestRequest:Has("TestMethod") THEN TestRequest:GetCharacter("TestMethod":U) ELSE ?
-        LogLevel = 
+        LogLevel =
             IF TestRequest:Has("LogLevel")
-            THEN TestRequest:GetCharacter("LogLevel":U) 
+            THEN TestRequest:GetCharacter("LogLevel":U)
             ELSE "Error":U
         .
-	
+
     RUN PerformTest(TestFile, TestMethod, OUTPUT JsonOutput).
 
     JsonOutput:WRITE(Response, FALSE).
@@ -470,7 +470,7 @@ PROCEDURE PerformTest PRIVATE:
     DEFINE VARIABLE TestRunner AS OEUnitRunner NO-UNDO.
 
     /* --------------------------------------------------------------------- */
-    
+
     IF TestFile = ? OR TestFile = "":U
     THEN RUN RaiseError("No test file specified in request":U).
 
@@ -518,7 +518,7 @@ END PROCEDURE.
 
 PROCEDURE TransformTestResultsToJson PRIVATE:
 
-    DEFINE INPUT PARAMETER TestResults AS TestClassResult NO-UNDO.   
+    DEFINE INPUT PARAMETER TestResults AS TestClassResult NO-UNDO.
     DEFINE OUTPUT PARAMETER JsonOutput AS JsonObject NO-UNDO.
 
     DEFINE VARIABLE ResultIndex AS INTEGER NO-UNDO.
@@ -536,25 +536,42 @@ PROCEDURE TransformTestResultsToJson PRIVATE:
     DEFINE VARIABLE JsonTestCases AS JsonArray NO-UNDO.
     DEFINE VARIABLE JsonTestCase AS JsonObject NO-UNDO.
     DEFINE VARIABLE JsonErrorStack AS JsonArray NO-UNDO.
-    
+
+    DEFINE VARIABLE HasClassLevelError AS LOGICAL NO-UNDO INITIAL FALSE.
+    DEFINE VARIABLE SummaryErrors AS INTEGER NO-UNDO.
+    DEFINE VARIABLE SummaryTotal AS INTEGER NO-UNDO.
+
     /* --------------------------------------------------------------------- */
 
     ASSIGN
         JsonOutput = NEW JsonObject()
         JsonSummary = NEW JsonObject().
 
+    /* Detect a class-level error (e.g. @BeforeClass threw) — no child results
+       were produced but the TestClassResult itself carries the error.
+       TestClassResult:CountTestsWithStatus / ResultCount only aggregate child
+       results, so without this check the error is silently lost. */
+    ASSIGN HasClassLevelError =
+        (TestResults:ResultCount = 0 AND TestResults:GetErrors():Size > 0).
+
+    ASSIGN
+        SummaryErrors = IF HasClassLevelError THEN 1
+                        ELSE TestResults:CountTestsWithStatus(TestResult:StatusError)
+        SummaryTotal  = IF HasClassLevelError THEN 1
+                        ELSE TestResults:ResultCount.
+
     JsonOutput:Add("Status":U, "COMPLETED":U).
 
-    JsonSummary:Add("Errors":U, TestResults:CountTestsWithStatus(TestResult:StatusError)).
+    JsonSummary:Add("Errors":U, SummaryErrors).
     JsonSummary:Add("Skipped":U, TestResults:CountTestsWithStatus(TestResult:StatusIgnored)).
-    JsonSummary:Add("Total":U, TestResults:ResultCount).
+    JsonSummary:Add("Total":U, SummaryTotal).
     JsonSummary:Add("DurationMs":U, TestResults:GetDuration()).
     JsonSummary:Add("Failures":U, TestResults:CountTestsWithStatus(TestResult:StatusFailed)).
     JsonSummary:Add("Name":U, TestResults:GetName()).
     JsonOutput:Add("Summary":U, JsonSummary).
 
     JsonTestCases = NEW JsonArray().
-    
+
     DO ResultIndex = 1 TO TestResults:ResultCount:
         ASSIGN
             JsonTestCase = NEW JsonObject()
@@ -564,7 +581,7 @@ PROCEDURE TransformTestResultsToJson PRIVATE:
         JsonTestCase:Add("Case":U, CurrentResult:GetName()).
         JsonTestCase:Add("DurationMs":U, CurrentResult:GetDuration()).
 
-        IF CurrentResult:GetErrors():Size > 0 
+        IF CurrentResult:GetErrors():Size > 0
         THEN DO:
             JsonTestCase:Add("Status":U, "Failed":U).
             JsonTestCase:Add("Failure":U, CurrentResult:GetMessage()).
@@ -582,9 +599,30 @@ PROCEDURE TransformTestResultsToJson PRIVATE:
             JsonTestCase:Add("Status":U, "Skipped":U).
         END.
         ELSE DO:
-            JsonTestCase:Add("Status":U, "Passed":U).            
+            JsonTestCase:Add("Status":U, "Passed":U).
         END.
 
+        JsonTestCases:Add(JsonTestCase).
+    END.
+
+    /* Synthesize a single test-case entry for the class-level error so that
+       the caller can display the BeforeClass failure message and stack trace. */
+    IF HasClassLevelError THEN DO:
+        ASSIGN
+            JsonTestCase  = NEW JsonObject()
+            ErrorList     = TestResults:GetErrors()
+            JsonErrorStack = NEW JsonArray().
+
+        DO ErrorIndex = 1 TO ErrorList:Size:
+            ASSIGN CallStack = CAST(ErrorList:Get(ErrorIndex), Progress.Lang.Error):CallStack.
+            JsonErrorStack:Add(CallStack).
+        END.
+
+        JsonTestCase:Add("Case":U, TestResults:GetName()).
+        JsonTestCase:Add("DurationMs":U, 0).
+        JsonTestCase:Add("Status":U, "Failed":U).
+        JsonTestCase:Add("Failure":U, TestResults:GetMessage()).
+        JsonTestCase:Add("ErrorStack":U, JsonErrorStack).
         JsonTestCases:Add(JsonTestCase).
     END.
 
@@ -632,7 +670,7 @@ PROCEDURE BuildResponse PRIVATE:
     DEFINE VARIABLE JsonOutput AS JsonObject NO-UNDO.
 
     /* --------------------------------------------------------------------- */
-    
+
     ASSIGN JsonOutput = NEW JsonObject().
 
     JsonOutput:Add("Status":U, "OK":U).
@@ -648,7 +686,7 @@ PROCEDURE CreateAliasesForDatabase PRIVATE:
 
     DEFINE INPUT PARAMETER DbName_ AS CHARACTER NO-UNDO.
     DEFINE INPUT PARAMETER Aliases AS CHARACTER NO-UNDO.
-    
+
     DEFINE VARIABLE NumAliases AS INTEGER NO-UNDO.
     DEFINE VARIABLE AliasEntryIndex AS INTEGER NO-UNDO.
     DEFINE VARIABLE AliasName AS CHARACTER NO-UNDO.
@@ -659,14 +697,14 @@ PROCEDURE CreateAliasesForDatabase PRIVATE:
     THEN DO:
         /* Aliases are separated by pipe (|) */
         ASSIGN NumAliases = NUM-ENTRIES(Aliases, "|":U).
-        
+
         DO AliasEntryIndex = 1 TO NumAliases:
             ASSIGN AliasName = ENTRY(AliasEntryIndex, Aliases, "|":U).
-            
+
             IF AliasName <> "":U
             THEN DO:
                 CREATE ALIAS VALUE(AliasName) FOR DATABASE VALUE(DbName_) NO-ERROR.
-                
+
                 IF ERROR-STATUS:ERROR
                 THEN DO:
                     LogWarning(SUBSTITUTE("Failed to create alias &1 for database &2: &3":U, AliasName, DbName_, ERROR-STATUS:GET-MESSAGE(1))).
@@ -689,7 +727,7 @@ PROCEDURE RaiseError PRIVATE:
     /* --------------------------------------------------------------------- */
 
     LogError(LogMessage).
-    
+
     UNDO, THROW NEW Progress.Lang.AppError(LogMessage, 1).
 
 END PROCEDURE.
