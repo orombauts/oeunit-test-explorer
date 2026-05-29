@@ -1,5 +1,11 @@
 # Change Log
 
+## [0.4.1] - 2026-05-29
+
+### Fixed
+- Improved feedback on general test-class failures (e.g. errors raised in `BeforeClass`): the server and test runner now surface the error message and stack instead of reporting a silent failure.
+- Use literal IPv4 address as the server host to avoid DNS/IP resolution issues on some machines.
+
 ## [0.4.0] - 2026-04-09
 
 ### Added
